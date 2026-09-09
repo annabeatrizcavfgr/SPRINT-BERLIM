@@ -3,27 +3,41 @@
 // API por fetch, nunca com o Supabase direto (a chave secreta de servidor fica só aqui, nunca no
 // navegador).
 //
-// Tabela usada (criar uma vez, via SQL Editor do Supabase — veja o texto que acompanha este arquivo):
+// Tabela usada (criar uma vez, via SQL Editor do Supabase):
 //   create table docs (
 //     path text primary key,
 //     value jsonb not null
 //   );
 //
 // "Coleção" = todo documento cujo caminho é "<caminho-coleção>/<id>", sem nenhuma barra a mais depois
-// disso (senão pegaria também documentos de sub-coleções mais fundo). Resolvido com um LIKE direto no
-// banco (`path like '<caminho-coleção>/%'`) e um filtro em JS pra manter só os filhos diretos — não
-// precisa manter nenhum índice manual à parte (diferença boa em relação à versão anterior com KV/Redis).
+// disso. Resolvido com um LIKE direto no banco + um filtro em JS pra manter só os filhos diretos.
+//
+// OBS: criar o cliente do Supabase DENTRO do handler (não no topo do arquivo) — assim, se
+// SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY estiverem ausentes ou malformadas, a gente consegue devolver
+// uma mensagem de erro de verdade (em vez da função inteira travar com um erro genérico da Vercel,
+// que não conta o motivo real e trava até o healthcheck).
 import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 export default async function handler(req, res) {
   try {
+    if (req.method === 'GET' && req.query.path === '__healthcheck__') {
+      return res.status(200).json({ ok: true });
+    }
+
+    let supabase;
+    try {
+      supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    } catch (e) {
+      return res.status(500).json({
+        error: 'Falha ao criar cliente Supabase: ' + String((e && e.message) || e),
+        hasUrl: !!process.env.SUPABASE_URL,
+        hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      });
+    }
+
     if (req.method === 'GET') {
       const { path, collection, orderBy, dir, limit } = req.query;
       if (!path) return res.status(400).json({ error: 'path obrigatório' });
-
-      if (path === '__healthcheck__') return res.status(200).json({ ok: true });
 
       if (collection === 'true') {
         const { data: rows, error } = await supabase
