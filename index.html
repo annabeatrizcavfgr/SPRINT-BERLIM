@@ -1736,6 +1736,27 @@ function allWeeksInData(){
   ROWS.forEach(r=>{ if(r.vigFim!=null && r.vigFim>=0) set.add(weekOfOrd(r.vigFim)); });
   return [...set].sort((a,b)=>a-b);
 }
+// pra "Gerenciar meses" (openMesesModal): diferente de allWeeksInData (que só traz semanas que já têm
+// casa concluída nos dados enviados), aqui a gente quer TODAS as sextas-feiras do ano corrente e do
+// próximo — pra dar pra configurar meses futuros com antecedência, antes de qualquer planilha daquele
+// período ter sido enviada. Junta também qualquer semana que já esteja em uso num mês configurado (ou
+// nos dados reais), mesmo que caia fora dessa janela de 2 anos, pra nunca "sumir" uma semana já usada.
+function allFridaysForMesesModal(){
+  const now = new Date();
+  const years = [now.getUTCFullYear(), now.getUTCFullYear()+1];
+  const set = new Set();
+  years.forEach(y=>{
+    const d = new Date(Date.UTC(y,0,1));
+    while(d.getUTCDay()!==5) d.setUTCDate(d.getUTCDate()+1); // primeira sexta-feira do ano
+    while(d.getUTCFullYear()===y){
+      set.add(dateToOrd(d));
+      d.setUTCDate(d.getUTCDate()+7);
+    }
+  });
+  MESES.forEach(m=>m.weekOrds.forEach(w=>set.add(w)));
+  allWeeksInData().forEach(w=>set.add(w));
+  return [...set].sort((a,b)=>a-b);
+}
 function selectedMes(){
   if(!MESES.length) return null;
   return MESES.find(m=>m.id===SELECTED_MES_ID) || MESES[MESES.length-1];
@@ -3336,7 +3357,7 @@ function openColunasModal(){
 
 function openMesesModal(){
   function paint(){
-    const weeks = allWeeksInData();
+    const weeks = allFridaysForMesesModal();
     const jaUsadas = new Set(MESES.flatMap(m=>m.weekOrds));
     const prevMesesList = document.getElementById('mesesList');
     const mesesScrollTop = prevMesesList ? prevMesesList.scrollTop : 0;
