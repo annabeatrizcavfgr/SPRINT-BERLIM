@@ -3048,7 +3048,7 @@ function mapaCardHtml(ranking, layout){
   const selectorBlock = `
     <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
       <label style="font-size:12px; color:var(--text-muted);">Colorir pelo status de:</label>
-      <select class="inline" id="mapaPacoteSelect" ${EXPANDED_IDX!=null?'disabled':''}>${ranking.map(p=>`<option value="${p.idx}" ${p.idx===eff?'selected':''}>${p.name}</option>`).join('')}</select>
+      <select class="inline" id="mapaPacoteSelect" ${EXPANDED_IDX!=null?'disabled':''}><option value="" ${eff==null?'selected':''}>— nenhum selecionado —</option>${ranking.map(p=>`<option value="${p.idx}" ${p.idx===eff?'selected':''}>${p.name}</option>`).join('')}</select>
     </div>
     <p id="mapaSyncNote" class="footer-note" style="padding:0; text-align:left; ${EXPANDED_IDX!=null?'':'display:none;'}">seguindo o pacote aberto na tabela</p>`;
   const viewportBlock = `
@@ -3085,7 +3085,7 @@ function alignMapaStatusLabels(){
 }
 function wireMapaCard(){
   document.getElementById('mapaPacoteSelect').addEventListener('change', e=>{
-    MAPA_PACOTE_IDX = parseInt(e.target.value,10); saveUiPrefs();
+    MAPA_PACOTE_IDX = e.target.value==='' ? null : parseInt(e.target.value,10); saveUiPrefs();
     paintMapa();
   });
   document.getElementById('mapaZoomIn').onclick = ()=> zoomMapaBy(1.4);
@@ -3140,7 +3140,13 @@ function renderGeral(){
   const sel = selectedIdxSet();
   const visible = ranking.filter(p=> sel==null || sel.has(p.idx));
   const mes = selectedMes();
-  if(MAPA_PACOTE_IDX==null || !LOOKUPS.pacotes[MAPA_PACOTE_IDX]) MAPA_PACOTE_IDX = defaultMapaPacoteIdx();
+  // NA SPRINT (só aqui): não força nenhum default quando nada foi escolhido — pedido dela em
+  // 2026-09-10 "gostaria que ele fosse direto pro pacote selecionado na esquerda, e caso não haja
+  // pacote nenhum selecionado, que fique em branco". effectiveMapaPacoteIdx() já segue o pacote
+  // expandido na tabela (EXPANDED_IDX) quando existe; sem isso, fica null e o mapa (paintMapa) já
+  // sabe desenhar tudo sem preenchimento nesse caso. Só invalida um índice que apontava pra um
+  // pacote que deixou de existir (ex.: sessão anterior com outro conjunto de pacotes).
+  if(MAPA_PACOTE_IDX!=null && !LOOKUPS.pacotes[MAPA_PACOTE_IDX]) MAPA_PACOTE_IDX = null;
   applyPresentationMode();
   const screen = document.getElementById('screen');
   screen.innerHTML = `
