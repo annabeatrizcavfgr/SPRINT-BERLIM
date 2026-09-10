@@ -609,27 +609,31 @@ function preserveScroll(fn){
   // ciclo de tarefa — esperar um frame chega tarde demais (testado: com rAF a posição não voltava).
   window.scrollTo(0, y);
 }
-let SORT_MODE = lsGet('jb_sort_mode', 'desvio_desc');
-let SELECTED_NAMES = lsGet('jb_selected_pacotes', null); // null = todos os pacotes; [] = nenhum; array = pacotes escolhidos
-let QUADRA_OPEN = lsGet('jb_quadra_open', false);
-let MAPA_PACOTE_IDX = lsGet('jb_mapa_pacote', null); // resolvido/validado a cada render (LOOKUPS pode não estar pronto ainda)
+// ordem, filtros, mês selecionado, modo apresentação etc. — COMPARTILHADO entre todo mundo (db, não
+// localStorage: ver saveUiPrefs/initDb), pedido dela em 2026-09-10: "preciso que ele armazene todas as
+// configurações que eu deixar, pra quando outra pessoa abrir, a ordem dos pacotes, os filtros, etc".
+// Valores abaixo são só o default ANTES do initDb() carregar o que estiver salvo (meta/uiPrefs).
+let SORT_MODE = 'desvio_desc';
+let SELECTED_NAMES = null; // null = todos os pacotes; [] = nenhum; array = pacotes escolhidos
+let QUADRA_OPEN = lsGet('jb_quadra_open', false); // só abrir/fechar acordeão — não é bem "configuração", fica por navegador
+let MAPA_PACOTE_IDX = null; // resolvido/validado a cada render (LOOKUPS pode não estar pronto ainda)
 let MAPA_VIEW = { scale:1, x:0, y:0 }; // pan/zoom do mapa — resetado sempre que o svg é remontado
-let CURRENT_SCREEN = lsGet('jb_screen', 'home'); // 'home' | 'painel'
-let SELECTED_MES_ID = lsGet('jb_selected_mes', null); // qual "mês" (de MESES) esta pessoa está vendo
-let CUSTOM_ORDER = lsGet('jb_custom_order', []); // nomes de pacote na ordem manual escolhida por esta pessoa
+let CURRENT_SCREEN = 'home'; // 'home' | 'painel'
+let SELECTED_MES_ID = null; // qual "mês" (de MESES) esta pessoa está vendo
+let CUSTOM_ORDER = []; // nomes de pacote na ordem manual escolhida
 let EXPANDED_IDX = null;   // pacote com o painel semana-a-semana aberto (accordion — só um por vez)
 let DETAILS_OPEN = false;  // "+ Detalhes" dentro do pacote expandido
 let SERVICOS_OPEN = false; // "+ Detalhe serviços" dentro do pacote expandido — só abre se ela pedir
 // colunas ocultas na tabela do Painel gerencial (pra apresentações mais enxutas) — array de ids de
 // PAINEL_COL_DEFS; vazio = mostra todas. "Pacote" nunca é ocultável (é a identidade da linha).
-let PAINEL_HIDDEN_COLS = lsGet('jb_painel_hidden_cols', []);
+let PAINEL_HIDDEN_COLS = [];
 let EXPANDED_QUADRA = null; // quadra com o drill-down casa-a-casa aberto em "Atrasos por quadra" (só uma por vez, não persiste)
 // "foco" — modo reunião: mostra só UM pacote na tabela (todos os outros somem), já expandido, pra ver
 // junto tabela+coordenador+gráfico+causas+mapa sem precisar rolar tanto. null = tabela normal, com todos.
-let FOCO_PACOTE_IDX = lsGet('jb_foco_pacote', null);
+let FOCO_PACOTE_IDX = null;
 // modo apresentação (reunião) — só some com os controles extras na tela, deixando o filtro de foco fixo
 // no topo. Só faz sentido na Sprint (ver applyPresentationMode/renderPainelGerencial).
-let PRESENTATION_MODE = lsGet('jb_presentation_mode', false);
+let PRESENTATION_MODE = false;
 function applyPresentationMode(){
   document.body.classList.toggle('presentation-mode', PRESENTATION_MODE);
 }
@@ -640,8 +644,24 @@ function applyPresentationMode(){
 let QUADRA_FILTRO_PACOTES = null;
 // filtros da "Análise de causas" — '' = sem filtro (todos os pacotes / todos os períodos)
 // seleção múltipla — mesma convenção de SELECTED_NAMES: null = todos, [] = nenhum, array = subconjunto
-let CAUSAS_FILTRO_PACOTES = lsGet('jb_causas_pacotes', null);
-let CAUSAS_FILTRO_PERIODOS = lsGet('jb_causas_periodos', null); // array de 'year:2026' / 'month:2026-08'
+let CAUSAS_FILTRO_PACOTES = null;
+let CAUSAS_FILTRO_PERIODOS = null; // array de 'year:2026' / 'month:2026-08'
+// salva TODAS as preferências compartilhadas acima num doc só (meta/uiPrefs) — chamada (sem esperar,
+// tipo "fire and forget") toda vez que qualquer uma delas muda, pra quem mais abrir o link ver a
+// mesma coisa que ela deixou configurada. QUADRA_OPEN e a semana em vista (jb_view_date_ref) ficam de
+// fora de propósito — são estado de navegação por pessoa, não "configuração" no sentido que ela pediu.
+async function saveUiPrefs(){
+  if(!db) return;
+  try{
+    await db.doc('meta/uiPrefs').set({
+      sortMode: SORT_MODE, selectedNames: SELECTED_NAMES, mapaPacoteIdx: MAPA_PACOTE_IDX,
+      currentScreen: CURRENT_SCREEN, selectedMesId: SELECTED_MES_ID, customOrder: CUSTOM_ORDER,
+      painelHiddenCols: PAINEL_HIDDEN_COLS, focoPacoteIdx: FOCO_PACOTE_IDX,
+      presentationMode: PRESENTATION_MODE, causasFiltroPacotes: CAUSAS_FILTRO_PACOTES,
+      causasFiltroPeriodos: CAUSAS_FILTRO_PERIODOS,
+    });
+  }catch(e){ console.error('saveUiPrefs failed', e); }
+}
 
 /* ===================================================================
    DATE / WEEK HELPERS
@@ -1078,13 +1098,14 @@ async function initDb(){
   // de ficar sem persistência nenhuma.
   if(!db) db = createLocalDb();
   try{
-    const [lk, st, mz, mst, qf, sv] = await Promise.all([
+    const [lk, st, mz, mst, qf, sv, up] = await Promise.all([
       db.doc('meta/lookups').get(),
       db.doc('meta/state').get(),
       db.doc('meta/meses').get(),
       db.doc('meta/metasState').get(),
       db.doc('meta/quadraFiltro').get(),
       db.doc('meta/servicos').get(),
+      db.doc('meta/uiPrefs').get(),
     ]);
     if(lk.exists){ const d = lk.data(); LOOKUPS = { pacotes: d.pacotes||[], responsaveis: d.responsaveis||[] }; }
     if(st.exists){ const d = st.data(); STATE_DOC = { dateRefs: d.dateRefs||[], latest: d.latest||null, previous: d.previous||null }; }
@@ -1098,6 +1119,23 @@ async function initDb(){
       const d = sv.data();
       SERVICOS_ROWS = d.rows||[]; SERVICOS_MES_ID = d.mesId||null;
       SERVICOS_META = { uploadedAt: d.uploadedAt, rowCount: d.rowCount||0 };
+    }
+    // ordem/filtros/mês/modo apresentação etc. deixados por ela — mesma ideia do QUADRA_FILTRO_PACOTES
+    // acima, mas agrupados num doc só (ver saveUiPrefs). Se nunca foi salvo ainda, fica nos defaults.
+    if(up.exists){
+      const d = up.data();
+      if(d.sortMode!=null) SORT_MODE = d.sortMode;
+      if(d.selectedNames!==undefined) SELECTED_NAMES = d.selectedNames;
+      if(d.mapaPacoteIdx!==undefined) MAPA_PACOTE_IDX = d.mapaPacoteIdx;
+      if(d.currentScreen!=null) CURRENT_SCREEN = d.currentScreen;
+      if(d.selectedMesId!==undefined) SELECTED_MES_ID = d.selectedMesId;
+      if(d.customOrder!=null) CUSTOM_ORDER = d.customOrder;
+      if(d.painelHiddenCols!=null) PAINEL_HIDDEN_COLS = d.painelHiddenCols;
+      if(d.focoPacoteIdx!==undefined) FOCO_PACOTE_IDX = d.focoPacoteIdx;
+      if(d.presentationMode!=null) PRESENTATION_MODE = d.presentationMode;
+      if(d.causasFiltroPacotes!==undefined) CAUSAS_FILTRO_PACOTES = d.causasFiltroPacotes;
+      if(d.causasFiltroPeriodos!==undefined) CAUSAS_FILTRO_PERIODOS = d.causasFiltroPeriodos;
+      applyPresentationMode();
     }
     if(STATE_DOC.dateRefs.length){
       EXAMPLE_MODE = false;
@@ -2174,12 +2212,12 @@ function openCausasPacoteModal(){
         let arr = CAUSAS_FILTRO_PACOTES==null ? LOOKUPS.pacotes.map((_,i)=>i) : CAUSAS_FILTRO_PACOTES.slice();
         if(cb.checked){ if(!arr.includes(idx)) arr.push(idx); } else { arr = arr.filter(i=>i!==idx); }
         CAUSAS_FILTRO_PACOTES = arr;
-        lsSet('jb_causas_pacotes', CAUSAS_FILTRO_PACOTES);
+        saveUiPrefs();
         paintCausasPareto();
       };
     });
-    document.getElementById('cpTodos').onclick = ()=>{ CAUSAS_FILTRO_PACOTES=null; lsSet('jb_causas_pacotes', null); paintCausasPareto(); paint(); };
-    document.getElementById('cpNenhum').onclick = ()=>{ CAUSAS_FILTRO_PACOTES=[]; lsSet('jb_causas_pacotes', []); paintCausasPareto(); paint(); };
+    document.getElementById('cpTodos').onclick = ()=>{ CAUSAS_FILTRO_PACOTES=null; saveUiPrefs(); paintCausasPareto(); paint(); };
+    document.getElementById('cpNenhum').onclick = ()=>{ CAUSAS_FILTRO_PACOTES=[]; saveUiPrefs(); paintCausasPareto(); paint(); };
     document.getElementById('cpFechar').onclick = closeModal;
   }
   paint();
@@ -2213,12 +2251,12 @@ function openCausasPeriodoModal(){
         let arr = CAUSAS_FILTRO_PERIODOS==null ? opts.map(o=>o.value) : CAUSAS_FILTRO_PERIODOS.slice();
         if(cb.checked){ if(!arr.includes(val)) arr.push(val); } else { arr = arr.filter(v=>v!==val); }
         CAUSAS_FILTRO_PERIODOS = arr;
-        lsSet('jb_causas_periodos', CAUSAS_FILTRO_PERIODOS);
+        saveUiPrefs();
         paintCausasPareto();
       };
     });
-    document.getElementById('cpdTodos').onclick = ()=>{ CAUSAS_FILTRO_PERIODOS=null; lsSet('jb_causas_periodos', null); paintCausasPareto(); paint(); };
-    document.getElementById('cpdNenhum').onclick = ()=>{ CAUSAS_FILTRO_PERIODOS=[]; lsSet('jb_causas_periodos', []); paintCausasPareto(); paint(); };
+    document.getElementById('cpdTodos').onclick = ()=>{ CAUSAS_FILTRO_PERIODOS=null; saveUiPrefs(); paintCausasPareto(); paint(); };
+    document.getElementById('cpdNenhum').onclick = ()=>{ CAUSAS_FILTRO_PERIODOS=[]; saveUiPrefs(); paintCausasPareto(); paint(); };
     document.getElementById('cpdFechar').onclick = closeModal;
   }
   paint();
@@ -2797,7 +2835,7 @@ function alignMapaStatusLabels(){
 }
 function wireMapaCard(){
   document.getElementById('mapaPacoteSelect').addEventListener('change', e=>{
-    MAPA_PACOTE_IDX = parseInt(e.target.value,10); lsSet('jb_mapa_pacote', MAPA_PACOTE_IDX);
+    MAPA_PACOTE_IDX = parseInt(e.target.value,10); saveUiPrefs();
     paintMapa();
   });
   document.getElementById('mapaZoomIn').onclick = ()=> zoomMapaBy(1.4);
@@ -2833,7 +2871,7 @@ function wireScreenTabs(){
   document.querySelectorAll('.screen-tab').forEach(b=>{
     b.onclick = ()=>{
       if(b.dataset.tab===CURRENT_SCREEN) return;
-      CURRENT_SCREEN = b.dataset.tab; lsSet('jb_screen', CURRENT_SCREEN);
+      CURRENT_SCREEN = b.dataset.tab; saveUiPrefs();
       // sem accordion fora da Visão geral — evita o mapa ficar preso seguindo um pacote que já não está mais "aberto"
       EXPANDED_IDX = null; DETAILS_OPEN = false; SERVICOS_OPEN = false;
       // trocar de TELA é navegação de verdade — reseta o zoom/posição do mapa (diferente de um filtro/
@@ -2890,7 +2928,7 @@ function renderGeral(){
   wireScreenTabs();
   document.getElementById('focoPacoteSelect').addEventListener('change', e=>{
     FOCO_PACOTE_IDX = e.target.value===''?null:parseInt(e.target.value,10);
-    lsSet('jb_foco_pacote', FOCO_PACOTE_IDX);
+    saveUiPrefs();
     EXPANDED_IDX = FOCO_PACOTE_IDX; DETAILS_OPEN = false; SERVICOS_OPEN = false;
     const searchEl = document.getElementById('pkgSearch');
     searchEl.disabled = FOCO_PACOTE_IDX!=null;
@@ -2900,7 +2938,7 @@ function renderGeral(){
   });
   document.getElementById('btnPresentation').onclick = ()=>{
     PRESENTATION_MODE = !PRESENTATION_MODE;
-    lsSet('jb_presentation_mode', PRESENTATION_MODE);
+    saveUiPrefs();
     renderGeral();
   };
   document.getElementById('ctxMesSlot').innerHTML = `
@@ -2912,11 +2950,11 @@ function renderGeral(){
   document.getElementById('btnMeses').onclick = openMesesModal;
   document.getElementById('btnOrdenar').onclick = openOrdenarModal;
   document.getElementById('mesSelect').addEventListener('change', e=>{
-    SELECTED_MES_ID = e.target.value || null; lsSet('jb_selected_mes', SELECTED_MES_ID);
+    SELECTED_MES_ID = e.target.value || null; saveUiPrefs();
     paintTable(document.getElementById('pkgSearch').value);
   });
   document.getElementById('sortMode').addEventListener('change', e=>{
-    SORT_MODE = e.target.value; lsSet('jb_sort_mode', SORT_MODE);
+    SORT_MODE = e.target.value; saveUiPrefs();
     paintTable(document.getElementById('pkgSearch').value);
   });
   wireMapaCard();
@@ -3102,11 +3140,11 @@ function renderPainelGerencial(){
   document.getElementById('btnMesesP').onclick = openMesesModal;
   document.getElementById('btnColunasP').onclick = openColunasModal;
   document.getElementById('mesSelectP').addEventListener('change', e=>{
-    SELECTED_MES_ID = e.target.value || null; lsSet('jb_selected_mes', SELECTED_MES_ID);
+    SELECTED_MES_ID = e.target.value || null; saveUiPrefs();
     renderPainelGerencial();
   });
   document.getElementById('sortModeP').addEventListener('change', e=>{
-    SORT_MODE = e.target.value; lsSet('jb_sort_mode', SORT_MODE);
+    SORT_MODE = e.target.value; saveUiPrefs();
     renderPainelGerencial();
   });
   });
@@ -3300,12 +3338,12 @@ function openFiltroModal(){
         if(cb.checked){ if(!names.includes(name)) names.push(name); }
         else { names = names.filter(n=>n!==name); }
         SELECTED_NAMES = names;
-        lsSet('jb_selected_pacotes', SELECTED_NAMES);
+        saveUiPrefs();
         render();
       };
     });
-    document.getElementById('filtroTodos').onclick = ()=>{ SELECTED_NAMES=null; lsSet('jb_selected_pacotes', null); render(); paint(); };
-    document.getElementById('filtroNenhum').onclick = ()=>{ SELECTED_NAMES=[]; lsSet('jb_selected_pacotes', []); render(); paint(); };
+    document.getElementById('filtroTodos').onclick = ()=>{ SELECTED_NAMES=null; saveUiPrefs(); render(); paint(); };
+    document.getElementById('filtroNenhum').onclick = ()=>{ SELECTED_NAMES=[]; saveUiPrefs(); render(); paint(); };
     document.getElementById('filtroFechar').onclick = closeModal;
   }
   paint();
@@ -3344,12 +3382,12 @@ function openColunasModal(){
     cb.onchange = ()=>{
       const id = cb.dataset.colcheck;
       PAINEL_HIDDEN_COLS = cb.checked ? PAINEL_HIDDEN_COLS.filter(x=>x!==id) : [...PAINEL_HIDDEN_COLS, id];
-      lsSet('jb_painel_hidden_cols', PAINEL_HIDDEN_COLS);
+      saveUiPrefs();
       renderPainelGerencial();
     };
   });
   document.getElementById('colunasTodas').onclick = ()=>{
-    PAINEL_HIDDEN_COLS = []; lsSet('jb_painel_hidden_cols', PAINEL_HIDDEN_COLS);
+    PAINEL_HIDDEN_COLS = []; saveUiPrefs();
     renderPainelGerencial(); closeModal(); openColunasModal();
   };
   document.getElementById('colunasFechar').onclick = closeModal;
@@ -3395,7 +3433,7 @@ function openMesesModal(){
     document.querySelectorAll('[data-delmes]').forEach(b=>{
       b.onclick = async ()=>{
         MESES = MESES.filter(m=>m.id!==b.dataset.delmes);
-        if(SELECTED_MES_ID===b.dataset.delmes){ SELECTED_MES_ID=null; lsSet('jb_selected_mes', null); }
+        if(SELECTED_MES_ID===b.dataset.delmes){ SELECTED_MES_ID=null; saveUiPrefs(); }
         await saveMeses();
         render(); paint();
       };
@@ -3408,7 +3446,7 @@ function openMesesModal(){
       const id = 'mes_'+Date.now();
       MESES.push({id, label, weekOrds:checked});
       MESES.sort((a,b)=>a.weekOrds[0]-b.weekOrds[0]);
-      SELECTED_MES_ID = id; lsSet('jb_selected_mes', id);
+      SELECTED_MES_ID = id; saveUiPrefs();
       await saveMeses();
       render(); paint();
     };
@@ -3469,8 +3507,8 @@ function openOrdenarModal(){
   }
   function applyOrder(){
     CUSTOM_ORDER = order.slice();
-    lsSet('jb_custom_order', CUSTOM_ORDER);
-    SORT_MODE = 'manual'; lsSet('jb_sort_mode', SORT_MODE);
+    saveUiPrefs();
+    SORT_MODE = 'manual'; saveUiPrefs();
     render();
     paint();
   }
