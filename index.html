@@ -1382,6 +1382,11 @@ async function initDb(){
       if(d.customOrder!=null) CUSTOM_ORDER = d.customOrder;
       if(d.painelHiddenCols!=null) PAINEL_HIDDEN_COLS = d.painelHiddenCols;
       if(d.focoPacoteIdx!==undefined) FOCO_PACOTE_IDX = d.focoPacoteIdx;
+      // "Ver só um pacote (reunião)" já vem carregado do último estado salvo — sem isso o mapa não
+      // sabia que devia seguir esse pacote (só sincronizava quando alguém MUDAVA o seletor de novo,
+      // ver o onchange de focoPacoteSelect), causando o mapa mostrar outro pacote enquanto a tabela
+      // já abria filtrada nele. Mesma sincronização que o onchange do seletor já faz.
+      if(FOCO_PACOTE_IDX!=null){ EXPANDED_IDX = FOCO_PACOTE_IDX; }
       if(d.presentationMode!=null) PRESENTATION_MODE = d.presentationMode;
       if(d.causasFiltroPacotes!==undefined) CAUSAS_FILTRO_PACOTES = d.causasFiltroPacotes;
       if(d.causasFiltroPeriodos!==undefined) CAUSAS_FILTRO_PERIODOS = d.causasFiltroPeriodos;
