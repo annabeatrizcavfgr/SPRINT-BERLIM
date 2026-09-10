@@ -578,6 +578,7 @@ let db = null;                     // claude db namespace, or null
 let AUTH = null;
 let CURRENT_USER = null;
 let MY_ROLE = 'visualizador';
+let MY_STATUS = null; // 'pending' | 'approved' — controla a tela de espera de aprovacao
 let LOOKUPS = { pacotes: [], responsaveis: [] };
 let SNAPSHOTS_META = [];           // [{dateRef, uploadedAt, rowCount, chunkCount}] asc by dateRef
 let STATE_DOC = { dateRefs: [], latest: null, previous: null };
@@ -1133,6 +1134,7 @@ async function fetchMyRole(){
     if(!r.ok) return;
     const j = await r.json();
     MY_ROLE = j.role || 'visualizador';
+    MY_STATUS = j.status || 'pending';
   }catch(e){ console.error('fetchMyRole failed', e); }
 }
 function updateAuthUi(){
@@ -1151,20 +1153,51 @@ function updateAuthUi(){
 function loginScreenHtml(msg){
   return `
     <h3>Entrar no Jardins Berlim</h3>
-    <p>Quem nunca usou pode criar uma conta - ela entra como <strong>visualizador</strong> (so
-    acompanha, sem editar) ate um <strong>planejador</strong> liberar edicao em "Usuarios".</p>
+    <p>Quem nunca usou pode criar uma conta - ela fica aguardando a aprovacao de um
+    <strong>planejador</strong> antes de poder entrar.</p>
     ${msg ? `<p style="color:var(--critical); font-weight:600;">${msg}</p>` : ''}
     <div class="form-field"><label>E-mail</label><input type="email" id="loginEmail" autocomplete="email"></div>
     <div class="form-field"><label>Senha</label><input type="password" id="loginSenha" autocomplete="current-password"></div>
+    <div class="form-field"><label>Confirmar senha (so pra criar conta)</label><input type="password" id="loginSenhaConfirma" autocomplete="new-password"></div>
     <div class="modal-actions">
       <button class="btn" id="btnCriarConta">Criar conta</button>
       <button class="btn btn-primary" id="btnEntrar">Entrar</button>
     </div>
   `;
 }
+function waitingApprovalHtml(){
+  return `
+    <h3>Aguardando aprovacao</h3>
+    <p>Sua conta (<strong>${CURRENT_USER ? CURRENT_USER.email : ''}</strong>) foi criada e esta
+    esperando um planejador aprovar o acesso. Assim que for aprovada, clique em "Tentar de novo".</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnSairEspera">Sair</button>
+      <button class="btn btn-primary" id="btnTentarDeNovo">Tentar de novo</button>
+    </div>
+  `;
+}
+function showWaitingApproval(){
+  openModal(waitingApprovalHtml());
+  document.getElementById('btnSairEspera').onclick = async ()=>{
+    if(AUTH) await AUTH.auth.signOut();
+    location.reload();
+  };
+  document.getElementById('btnTentarDeNovo').onclick = async ()=>{
+    const ok = await loadRoleAndGate();
+    if(ok){
+      closeModal();
+      seedExample();
+      render();
+      await initDb();
+      render();
+    }
+  };
+}
 function showLoginScreen(msg){
   openModal(loginScreenHtml(msg));
-  const emailEl = document.getElementById('loginEmail'), senhaEl = document.getElementById('loginSenha');
+  const emailEl = document.getElementById('loginEmail');
+  const senhaEl = document.getElementById('loginSenha');
+  const confirmaEl = document.getElementById('loginSenhaConfirma');
   document.getElementById('btnEntrar').onclick = async ()=>{
     const email = emailEl.value.trim(), senha = senhaEl.value;
     if(!email || !senha){ showLoginScreen('Preencha e-mail e senha.'); return; }
@@ -1174,23 +1207,36 @@ function showLoginScreen(msg){
     await afterLogin();
   };
   document.getElementById('btnCriarConta').onclick = async ()=>{
-    const email = emailEl.value.trim(), senha = senhaEl.value;
+    const email = emailEl.value.trim(), senha = senhaEl.value, confirma = confirmaEl.value;
     if(!email || !senha){ showLoginScreen('Preencha e-mail e senha (minimo 6 caracteres) pra criar a conta.'); return; }
+    if(senha !== confirma){ showLoginScreen('As senhas nao sao iguais.'); return; }
     const { data, error } = await AUTH.auth.signUp({ email, password: senha });
     if(error){ showLoginScreen(traduzErroAuth(error)); return; }
     if(!data.session){
-      showLoginScreen('Conta criada! Confirme o e-mail que a gente mandou antes de entrar (se o projeto exigir isso).');
+      showLoginScreen('Conta criada! Se o projeto pedir confirmacao de e-mail, confirme antes de entrar - depois disso, aguarde a aprovacao de um planejador.');
       return;
     }
     closeModal();
     await afterLogin();
   };
 }
+// checa (e mostra) o status de quem logou: se ainda "pending", mostra a tela de espera e devolve
+// false (quem chamou NAO deve carregar o resto do app); se "approved", atualiza os botoes/topbar e
+// devolve true (pode seguir o boot normal).
+async function loadRoleAndGate(){
+  await fetchMyRole();
+  if(MY_STATUS !== 'approved'){
+    showWaitingApproval();
+    return false;
+  }
+  updateAuthUi();
+  return true;
+}
 async function afterLogin(){
   const { data:{ session } } = await AUTH.auth.getSession();
   CURRENT_USER = session ? session.user : null;
-  await fetchMyRole();
-  updateAuthUi();
+  const ok = await loadRoleAndGate();
+  if(!ok) return; // ficou na tela de espera
   seedExample();
   render();
   await initDb();
@@ -1210,9 +1256,7 @@ async function initAuth(){
   const { data:{ session } } = await AUTH.auth.getSession();
   if(session){
     CURRENT_USER = session.user;
-    await fetchMyRole();
-    updateAuthUi();
-    return true;
+    return await loadRoleAndGate();
   }
   showLoginScreen();
   return false;
@@ -1226,30 +1270,57 @@ async function openUsersModal(){
     if(!r.ok) throw new Error(j.error||'falha ao carregar');
     users = j.users||[];
   }catch(e){ toast('Falha ao carregar usuarios: '+(e && e.message?e.message:e), 'err'); return; }
+  async function patchUser(email, patch){
+    const r = await fetch('/api/role', {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(Object.assign({email}, patch))});
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error||'falha');
+  }
   function paint(){
+    const pendentes = users.filter(u=>u.status!=='approved');
+    const aprovados = users.filter(u=>u.status==='approved');
     openModal(`
       <h3>Usuarios</h3>
       <p>Quem pode entrar e o que cada um pode fazer. "Planejador" edita tudo; "visualizador" so olha.</p>
-      <div style="max-height:360px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px;">
-        ${users.length ? users.map(u=>`
+      ${pendentes.length ? `
+        <div class="form-field"><label>Aguardando aprovacao</label></div>
+        <div style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px; margin-bottom:14px;">
+          ${pendentes.map(u=>`
+            <div class="list-row">
+              <div>${u.email} <span class="badge badge-warn">pendente</span></div>
+              <button class="btn btn-sm btn-primary" data-aprovar="${u.email}">Aprovar</button>
+            </div>`).join('')}
+        </div>
+      ` : ''}
+      <div class="form-field"><label>Aprovados</label></div>
+      <div style="max-height:280px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px;">
+        ${aprovados.length ? aprovados.map(u=>`
           <div class="list-row">
             <div>${u.email}${u.email===(CURRENT_USER && CURRENT_USER.email) ? ' <span class="badge badge-accent">voce</span>' : ''}</div>
             <select class="inline" data-userrole="${u.email}" ${u.email===(CURRENT_USER && CURRENT_USER.email)?'disabled':''}>
               <option value="visualizador" ${u.role==='visualizador'?'selected':''}>Visualizador</option>
               <option value="planejador" ${u.role==='planejador'?'selected':''}>Planejador</option>
             </select>
-          </div>`).join('') : '<p class="empty-note">Ninguem logou ainda.</p>'}
+          </div>`).join('') : '<p class="empty-note">Ninguem aprovado ainda.</p>'}
       </div>
       <div class="modal-actions"><button class="btn btn-primary" id="usersFechar">Concluido</button></div>
     `);
+    document.querySelectorAll('[data-aprovar]').forEach(btn=>{
+      btn.onclick = async ()=>{
+        const email = btn.dataset.aprovar;
+        try{
+          await patchUser(email, {status:'approved'});
+          const u = users.find(x=>x.email===email); if(u) u.status = 'approved';
+          toast(email+' aprovado(a).');
+          paint();
+        }catch(e){ toast('Falha ao aprovar: '+(e && e.message?e.message:e), 'err'); }
+      };
+    });
     document.querySelectorAll('[data-userrole]').forEach(sel=>{
       sel.onchange = async ()=>{
         const email = sel.dataset.userrole;
         const role = sel.value;
         try{
-          const r = await fetch('/api/role', {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({email, role})});
-          const j = await r.json();
-          if(!r.ok) throw new Error(j.error||'falha');
+          await patchUser(email, {role});
           const u = users.find(x=>x.email===email); if(u) u.role = role;
           toast('Papel de '+email+' atualizado pra '+role+'.');
         }catch(e){ toast('Falha ao atualizar: '+(e && e.message?e.message:e), 'err'); paint(); }

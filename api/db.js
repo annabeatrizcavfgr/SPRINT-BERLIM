@@ -1,6 +1,6 @@
-// api/db.js — Vercel Serverless Function que implementa "documentos" e "coleções" (parecido com o
-// Firestore) por cima de UMA tabela só no Supabase (Postgres). O front-end (index.html) fala com essa
-// API por fetch, nunca com o Supabase direto (a chave secreta de servidor fica só aqui, nunca no
+// api/db.js — Vercel Serverless Function que implementa "documentos" e "colecoes" (parecido com o
+// Firestore) por cima de UMA tabela so no Supabase (Postgres). O front-end (index.html) fala com essa
+// API por fetch, nunca com o Supabase direto (a chave secreta de servidor fica so aqui, nunca no
 // navegador).
 //
 // Tabela usada (criar uma vez, via SQL Editor do Supabase):
@@ -9,14 +9,14 @@
 //     value jsonb not null
 //   );
 //
-// "Coleção" = todo documento cujo caminho é "<caminho-coleção>/<id>", sem nenhuma barra a mais depois
-// disso. Resolvido com um LIKE direto no banco + um filtro em JS pra manter só os filhos diretos.
+// "Colecao" = todo documento cujo caminho e "<caminho-colecao>/<id>", sem nenhuma barra a mais depois
+// disso. Resolvido com um LIKE direto no banco + um filtro em JS pra manter so os filhos diretos.
 //
-// LOGIN/PERMISSÃO (adicionado depois do banco): toda chamada (menos o healthcheck) agora exige um
-// usuário logado (Supabase Auth) — o front-end manda o token da sessão no cabeçalho Authorization. Além
-// disso, GRAVAR (POST: set/delete/add) exige que o papel dessa pessoa seja "planejador" — "visualizador"
-// só consegue ler (GET). Ver lib/supabaseAuth.js pra como o token é validado e o papel é descoberto.
-import { supabaseAdmin, getAuthedUser, getUserRole } from '../lib/supabaseAuth.js';
+// LOGIN/PERMISSAO: toda chamada (menos o healthcheck) exige um usuario logado (Supabase Auth) E
+// aprovado (status='approved', ver lib/supabaseAuth.js e a tela "Usuarios") — quem esta "pending"
+// (acabou de se cadastrar, esperando ela aprovar) nao le nem grava nada aqui. Alem disso, GRAVAR (POST:
+// set/delete/add) exige que o papel seja "planejador" — "visualizador" so consegue ler (GET).
+import { supabaseAdmin, getAuthedUser, getUserRoleStatus } from '../lib/supabaseAuth.js';
 
 export default async function handler(req, res) {
   try {
@@ -36,12 +36,13 @@ export default async function handler(req, res) {
     }
 
     const user = await getAuthedUser(req, supabase);
-    if (!user) return res.status(401).json({ error: 'não autenticado' });
-    const role = await getUserRole(supabase, user.id, user.email);
+    if (!user) return res.status(401).json({ error: 'nao autenticado' });
+    const mine = await getUserRoleStatus(supabase, user.id, user.email);
+    if (mine.status !== 'approved') return res.status(403).json({ error: 'conta aguardando aprovacao', status: mine.status });
 
     if (req.method === 'GET') {
       const { path, collection, orderBy, dir, limit } = req.query;
-      if (!path) return res.status(400).json({ error: 'path obrigatório' });
+      if (!path) return res.status(400).json({ error: 'path obrigatorio' });
 
       if (collection === 'true') {
         const { data: rows, error } = await supabase
@@ -71,9 +72,9 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      if (role !== 'planejador') return res.status(403).json({ error: 'só planejador pode editar' });
+      if (mine.role !== 'planejador') return res.status(403).json({ error: 'so planejador pode editar' });
       const { path, action, data } = req.body || {};
-      if (!path || !action) return res.status(400).json({ error: 'path e action obrigatórios' });
+      if (!path || !action) return res.status(400).json({ error: 'path e action obrigatorios' });
 
       if (action === 'set') {
         const { error } = await supabase.from('docs').upsert({ path, value: data });
@@ -97,7 +98,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'action desconhecida: ' + action });
     }
 
-    return res.status(405).json({ error: 'método não permitido' });
+    return res.status(405).json({ error: 'metodo nao permitido' });
   } catch (e) {
     console.error('api/db error', e);
     return res.status(500).json({ error: String((e && e.message) || e) });
