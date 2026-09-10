@@ -4,6 +4,7 @@
 <!-- tipografia padrão do ecossistema Microsoft 365/SharePoint — Segoe UI é fonte de sistema (Windows),
      não fica no Google Fonts, então não há <link> pra carregar; --font-* já cai direto no stack nativo -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <style>
 /* =============================================================================
    TOKENS — "caderneta de campo": papel de prancha técnica, tinta blueprint,
@@ -540,6 +541,9 @@ select.inline{font:inherit; border:1px solid var(--border); border-radius:8px; p
       <input type="file" id="fileInputServicos" accept=".xlsx" hidden>
       <button class="btn btn-sm" id="btnGerenciarSemanas" title="Excluir semanas/metas enviadas por engano">🗑️ Gerenciar semanas</button>
       <button class="btn btn-sm" id="btnExportar" title="Imprimir ou salvar a tela atual em PDF">🖨️ Exportar</button>
+      <button class="btn btn-sm" id="btnUsuarios" title="Gerenciar quem pode entrar e editar" style="display:none;">👤 Usuários</button>
+      <span id="whoamiSlot" class="pkg-meta" style="margin-left:6px;"></span>
+      <button class="btn btn-sm btn-ghost" id="btnSair" style="display:none;">Sair</button>
     </div>
   </div>
   <main id="screen"></main>
@@ -567,6 +571,13 @@ const CAUSAS_LISTA = [
 ];
 
 let db = null;                     // claude db namespace, or null
+// login/permissão (só existe nessa hospedagem própria — dentro do Artifact da Claude, AUTH fica null
+// pra sempre e o app funciona como antes, sem tela de login nenhuma). AUTH = cliente do Supabase Auth
+// (criado em initAuth); CURRENT_USER = {id,email} de quem logou; MY_ROLE = 'planejador' (edita tudo) ou
+// 'visualizador' (só lê) — ver initAuth/checkWritable/api/role.js.
+let AUTH = null;
+let CURRENT_USER = null;
+let MY_ROLE = 'visualizador';
 let LOOKUPS = { pacotes: [], responsaveis: [] };
 let SNAPSHOTS_META = [];           // [{dateRef, uploadedAt, rowCount, chunkCount}] asc by dateRef
 let STATE_DOC = { dateRefs: [], latest: null, previous: null };
@@ -963,20 +974,43 @@ function applyMetasOverride(){
 // collection, get/set/delete/add/orderBy/limit) — o resto do app não muda nada. Usado só quando o
 // arquivo está sendo servido por http(s) de verdade (não um arquivo aberto direto) E a API responde —
 // ver initDb().
+// pega o token da sessão atual do Supabase Auth (ou null se não tem AUTH configurado/ninguém logado) —
+// mandado em toda chamada pro /api/db, que agora exige login (ver initAuth/api/db.js).
+async function authToken(){
+  if(!AUTH) return null;
+  try{
+    const { data } = await AUTH.auth.getSession();
+    return data && data.session ? data.session.access_token : null;
+  }catch(e){ return null; }
+}
+async function authHeaders(extra){
+  const t = await authToken();
+  return Object.assign({}, extra||{}, t ? { Authorization: 'Bearer '+t } : {});
+}
+// só "planejador" pode gravar — "visualizador" consegue ler tudo, mas toda tentativa de escrever pára
+// aqui (com um aviso), sem nem chegar a chamar a API (o servidor também recusa, por garantia — ver
+// api/db.js — mas travar aqui já evita a chamada de rede à toa e dá um aviso mais rápido).
+function checkWritable(){
+  if(MY_ROLE === 'planejador') return true;
+  toast('Você está como visualizador — peça pra um "planejador" fazer essa alteração.', 'warn');
+  return false;
+}
 function createRemoteDb(){
   const API = '/api/db';
   function docRef(path){
     return {
       async get(){
-        const r = await fetch(API+'?path='+encodeURIComponent(path));
+        const r = await fetch(API+'?path='+encodeURIComponent(path), { headers: await authHeaders() });
         const j = await r.json();
         return { exists: !!j.exists, data: ()=>j.data };
       },
       async set(value){
-        await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path, action:'set', data:value})});
+        if(!checkWritable()) return;
+        await fetch(API, {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({path, action:'set', data:value})});
       },
       async delete(){
-        await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path, action:'delete'})});
+        if(!checkWritable()) return;
+        await fetch(API, {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({path, action:'delete'})});
       },
     };
   }
@@ -985,7 +1019,8 @@ function createRemoteDb(){
     return {
       doc(id){ return docRef(path+'/'+id); },
       async add(value){
-        const r = await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path, action:'add', data:value})});
+        if(!checkWritable()) return { id: null };
+        const r = await fetch(API, {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({path, action:'add', data:value})});
         const j = await r.json();
         return { id: j.id };
       },
@@ -996,7 +1031,7 @@ function createRemoteDb(){
         if(state.field) params.set('orderBy', state.field);
         if(state.dir) params.set('dir', state.dir);
         if(state.n!=null) params.set('limit', state.n);
-        const r = await fetch(API+'?'+params.toString());
+        const r = await fetch(API+'?'+params.toString(), { headers: await authHeaders() });
         const j = await r.json();
         return { docs: (j.docs||[]).map(d=>({ id:d.id, exists:true, data: ()=>d.data })) };
       },
@@ -1079,6 +1114,150 @@ function createLocalDb(){
     };
   }
   return { doc: docRef, collection: collectionRef };
+}
+/* ===================================================================
+   LOGIN / PERMISSOES (Supabase Auth) - so existe nessa hospedagem propria (Vercel); dentro do Artifact
+   da Claude, initAuth() devolve true na hora e nada disso entra em acao.
+=================================================================== */
+function traduzErroAuth(error){
+  const m = (error && error.message) || String(error);
+  if(/Invalid login credentials/i.test(m)) return 'E-mail ou senha incorretos.';
+  if(/User already registered/i.test(m)) return 'Ja existe uma conta com esse e-mail - tente Entrar.';
+  if(/Password should be at least/i.test(m)) return 'A senha precisa ter pelo menos 6 caracteres.';
+  if(/Unable to validate email address/i.test(m)) return 'E-mail invalido.';
+  return m;
+}
+async function fetchMyRole(){
+  try{
+    const r = await fetch('/api/role', { headers: await authHeaders() });
+    if(!r.ok) return;
+    const j = await r.json();
+    MY_ROLE = j.role || 'visualizador';
+  }catch(e){ console.error('fetchMyRole failed', e); }
+}
+function updateAuthUi(){
+  const isPlan = MY_ROLE === 'planejador';
+  ['btnUpload','btnUploadMetas','btnUploadServicos'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.style.display = isPlan ? '' : 'none';
+  });
+  const btnUsuarios = document.getElementById('btnUsuarios');
+  if(btnUsuarios) btnUsuarios.style.display = isPlan ? '' : 'none';
+  const btnSair = document.getElementById('btnSair');
+  if(btnSair) btnSair.style.display = CURRENT_USER ? '' : 'none';
+  const whoami = document.getElementById('whoamiSlot');
+  if(whoami) whoami.textContent = CURRENT_USER ? (CURRENT_USER.email+' - '+(isPlan?'planejador':'visualizador')) : '';
+}
+function loginScreenHtml(msg){
+  return `
+    <h3>Entrar no Jardins Berlim</h3>
+    <p>Quem nunca usou pode criar uma conta - ela entra como <strong>visualizador</strong> (so
+    acompanha, sem editar) ate um <strong>planejador</strong> liberar edicao em "Usuarios".</p>
+    ${msg ? `<p style="color:var(--critical); font-weight:600;">${msg}</p>` : ''}
+    <div class="form-field"><label>E-mail</label><input type="email" id="loginEmail" autocomplete="email"></div>
+    <div class="form-field"><label>Senha</label><input type="password" id="loginSenha" autocomplete="current-password"></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCriarConta">Criar conta</button>
+      <button class="btn btn-primary" id="btnEntrar">Entrar</button>
+    </div>
+  `;
+}
+function showLoginScreen(msg){
+  openModal(loginScreenHtml(msg));
+  const emailEl = document.getElementById('loginEmail'), senhaEl = document.getElementById('loginSenha');
+  document.getElementById('btnEntrar').onclick = async ()=>{
+    const email = emailEl.value.trim(), senha = senhaEl.value;
+    if(!email || !senha){ showLoginScreen('Preencha e-mail e senha.'); return; }
+    const { error } = await AUTH.auth.signInWithPassword({ email, password: senha });
+    if(error){ showLoginScreen(traduzErroAuth(error)); return; }
+    closeModal();
+    await afterLogin();
+  };
+  document.getElementById('btnCriarConta').onclick = async ()=>{
+    const email = emailEl.value.trim(), senha = senhaEl.value;
+    if(!email || !senha){ showLoginScreen('Preencha e-mail e senha (minimo 6 caracteres) pra criar a conta.'); return; }
+    const { data, error } = await AUTH.auth.signUp({ email, password: senha });
+    if(error){ showLoginScreen(traduzErroAuth(error)); return; }
+    if(!data.session){
+      showLoginScreen('Conta criada! Confirme o e-mail que a gente mandou antes de entrar (se o projeto exigir isso).');
+      return;
+    }
+    closeModal();
+    await afterLogin();
+  };
+}
+async function afterLogin(){
+  const { data:{ session } } = await AUTH.auth.getSession();
+  CURRENT_USER = session ? session.user : null;
+  await fetchMyRole();
+  updateAuthUi();
+  seedExample();
+  render();
+  await initDb();
+  render();
+}
+async function initAuth(){
+  if(location.protocol.indexOf('http')!==0) return true;
+  let cfg;
+  try{
+    const r = await fetch('/api/config');
+    if(!r.ok) return true;
+    cfg = await r.json();
+    if(!cfg.url || !cfg.anonKey) return true;
+  }catch(e){ return true; }
+  if(typeof supabase==='undefined' || !supabase.createClient) return true;
+  AUTH = supabase.createClient(cfg.url, cfg.anonKey);
+  const { data:{ session } } = await AUTH.auth.getSession();
+  if(session){
+    CURRENT_USER = session.user;
+    await fetchMyRole();
+    updateAuthUi();
+    return true;
+  }
+  showLoginScreen();
+  return false;
+}
+async function openUsersModal(){
+  if(MY_ROLE !== 'planejador'){ toast('So planejador acessa essa tela.', 'warn'); return; }
+  let users = [];
+  try{
+    const r = await fetch('/api/role?list=true', { headers: await authHeaders() });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error||'falha ao carregar');
+    users = j.users||[];
+  }catch(e){ toast('Falha ao carregar usuarios: '+(e && e.message?e.message:e), 'err'); return; }
+  function paint(){
+    openModal(`
+      <h3>Usuarios</h3>
+      <p>Quem pode entrar e o que cada um pode fazer. "Planejador" edita tudo; "visualizador" so olha.</p>
+      <div style="max-height:360px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px;">
+        ${users.length ? users.map(u=>`
+          <div class="list-row">
+            <div>${u.email}${u.email===(CURRENT_USER && CURRENT_USER.email) ? ' <span class="badge badge-accent">voce</span>' : ''}</div>
+            <select class="inline" data-userrole="${u.email}" ${u.email===(CURRENT_USER && CURRENT_USER.email)?'disabled':''}>
+              <option value="visualizador" ${u.role==='visualizador'?'selected':''}>Visualizador</option>
+              <option value="planejador" ${u.role==='planejador'?'selected':''}>Planejador</option>
+            </select>
+          </div>`).join('') : '<p class="empty-note">Ninguem logou ainda.</p>'}
+      </div>
+      <div class="modal-actions"><button class="btn btn-primary" id="usersFechar">Concluido</button></div>
+    `);
+    document.querySelectorAll('[data-userrole]').forEach(sel=>{
+      sel.onchange = async ()=>{
+        const email = sel.dataset.userrole;
+        const role = sel.value;
+        try{
+          const r = await fetch('/api/role', {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({email, role})});
+          const j = await r.json();
+          if(!r.ok) throw new Error(j.error||'falha');
+          const u = users.find(x=>x.email===email); if(u) u.role = role;
+          toast('Papel de '+email+' atualizado pra '+role+'.');
+        }catch(e){ toast('Falha ao atualizar: '+(e && e.message?e.message:e), 'err'); paint(); }
+      };
+    });
+    document.getElementById('usersFechar').onclick = closeModal;
+  }
+  paint();
 }
 async function initDb(){
   try{
@@ -3628,6 +3807,11 @@ function openSnapshotsModal(){
    UPLOAD WIRING
 =================================================================== */
 document.getElementById('btnGerenciarSemanas').addEventListener('click', openSnapshotsModal);
+document.getElementById('btnUsuarios').addEventListener('click', openUsersModal);
+document.getElementById('btnSair').addEventListener('click', async ()=>{
+  if(AUTH) await AUTH.auth.signOut();
+  location.reload();
+});
 // "Exportar": tanto window.print() direto quanto abrir uma aba nova com window.open() ficam bloqueados
 // aqui — o Artifact roda dentro de um iframe com sandbox (é o mesmo motivo pelo qual os diálogos de
 // confirmação do app usam confirmModal() em vez do confirm() nativo, e nem window.open nem window.print
@@ -3685,6 +3869,8 @@ document.getElementById('fileInputMetas').addEventListener('change', async e=>{
    BOOT
 =================================================================== */
 (async function boot(){
+  const loggedInOrNoAuth = await initAuth();
+  if(!loggedInOrNoAuth) return;
   seedExample();
   render();
   await initDb();

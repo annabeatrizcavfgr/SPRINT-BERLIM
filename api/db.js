@@ -12,11 +12,11 @@
 // "Coleção" = todo documento cujo caminho é "<caminho-coleção>/<id>", sem nenhuma barra a mais depois
 // disso. Resolvido com um LIKE direto no banco + um filtro em JS pra manter só os filhos diretos.
 //
-// OBS: criar o cliente do Supabase DENTRO do handler (não no topo do arquivo) — assim, se
-// SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY estiverem ausentes ou malformadas, a gente consegue devolver
-// uma mensagem de erro de verdade (em vez da função inteira travar com um erro genérico da Vercel,
-// que não conta o motivo real e trava até o healthcheck).
-import { createClient } from '@supabase/supabase-js';
+// LOGIN/PERMISSÃO (adicionado depois do banco): toda chamada (menos o healthcheck) agora exige um
+// usuário logado (Supabase Auth) — o front-end manda o token da sessão no cabeçalho Authorization. Além
+// disso, GRAVAR (POST: set/delete/add) exige que o papel dessa pessoa seja "planejador" — "visualizador"
+// só consegue ler (GET). Ver lib/supabaseAuth.js pra como o token é validado e o papel é descoberto.
+import { supabaseAdmin, getAuthedUser, getUserRole } from '../lib/supabaseAuth.js';
 
 export default async function handler(req, res) {
   try {
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
     let supabase;
     try {
-      supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      supabase = supabaseAdmin();
     } catch (e) {
       return res.status(500).json({
         error: 'Falha ao criar cliente Supabase: ' + String((e && e.message) || e),
@@ -34,6 +34,10 @@ export default async function handler(req, res) {
         hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       });
     }
+
+    const user = await getAuthedUser(req, supabase);
+    if (!user) return res.status(401).json({ error: 'não autenticado' });
+    const role = await getUserRole(supabase, user.id, user.email);
 
     if (req.method === 'GET') {
       const { path, collection, orderBy, dir, limit } = req.query;
@@ -67,6 +71,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
+      if (role !== 'planejador') return res.status(403).json({ error: 'só planejador pode editar' });
       const { path, action, data } = req.body || {};
       if (!path || !action) return res.status(400).json({ error: 'path e action obrigatórios' });
 
