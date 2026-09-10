@@ -2193,6 +2193,7 @@ function monthPaceColor(pct){
   const mes = selectedMes();
   if(!mes || pct==null || !mes.weekOrds.length) return 'var(--text-muted)';
   const weekPos = mes.weekOrds.filter(w=>w<=weekOfOrd(TODAY_ORD)).length;
+  if(weekPos===0) return 'var(--text-muted)';
   const expected = weekPos/mes.weekOrds.length;
   return pct>=expected ? 'var(--good)' : 'var(--critical)';
 }
@@ -3349,7 +3350,7 @@ function renderPainelGerencial(){
           // sem badge de status aqui (Atrasado/No prazo/etc) — a cor da barra de avanço (abaixo) e do
           // IDP já cobrem isso; retirado a pedido dela (2026-09-09), mesma lógica do que foi feito na Sprint.
           const cells = {
-            totalMes: `<td class="num-cell mono">${mm.realizado}/${mm.meta}</td>`,
+            totalMes: `<td class="num-cell mono" style="color:${monthPaceColor(mm.pct)}; font-weight:700;">${mm.realizado}/${mm.meta}${mm.pct!=null?' · '+pctFmt(mm.pct):''}</td>`,
             base: `<td class="num-cell mono">${p.casasBase}</td>`,
             real: `<td class="num-cell mono">${p.casasRealizado}</td>`,
             idp: `<td class="num-cell mono" style="color:${tierColor(p.aderenciaContrato)}; font-weight:700;">${idpFmt(p.aderenciaContrato)}</td>`,
