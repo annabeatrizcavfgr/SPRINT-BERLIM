@@ -939,6 +939,14 @@ function applyMetasOverride(){
     // essas funções) continua no critério de planejamento.
     r.metaVigIni = m.vigIni;
     r.metaVigFim = m.vigFim;
+    // responsável SEGUNDO A PLANILHA DE METAS (pode ser diferente do responsável da planilha semanal,
+    // se o replanejamento reatribuiu o pacote) — usado só pra agrupar o PREVISTO por coordenador
+    // (respWeeklyBreakdown). O realizado continua agrupado pelo responsável da semanal (quem
+    // realmente fez), sem mudança. Achado com dado real (2026-09-11): "Por coordenador" mostrava 31
+    // casas previstas de Gesso Interno pro Iury na semana 1, mas a planilha de metas só tinha 14 —
+    // o app estava pegando a DATA da planilha de metas mas o RESPONSÁVEL da planilha semanal,
+    // misturando as duas fontes numa mesma conta.
+    r.metaRespIdx = m.respIdx;
     // Previsto% SEMPRE calculado pela data da Meta, mesmo pra casa já concluída — não força 100 só
     // porque terminou. "Previsto acumulado" tem que responder "quantas deveriam estar prontas segundo
     // o cronograma até hoje", uma pergunta que não depende de estar feita ou não. O código antigo
@@ -2534,19 +2542,47 @@ function responsavelBreakdown(pacoteIdx){
   });
   return [...per.entries()].map(([respIdx,v])=>({respIdx, nome:LOOKUPS.responsaveis[respIdx]||'—', ...v, pct: v.previsto? v.realizado/v.previsto : null}));
 }
-// semana a semana, por coordenador — pra reunião, mesmo recorte de semanas do gráfico principal do pacote.
-// useMeta=false (data REAL/replanejada, não a planejada da Meta): "quantas essa pessoa concluiu NESSA
-// semana" tem que bater com o mapa (que também usa vigFim real) — useMeta=true fazia uma casa concluída
-// ADIANTADA (antes do previsto) contar na semana PLANEJADA em vez da semana em que ela realmente
-// terminou, inflando o número dessa semana e destoando do mapa. Achado com dado real (2026-09-09):
-// pacote 28-REVESTIMENTO CERÂMICO mostrando 14 na tabela/gráfico contra 9 no mapa pra mesma semana.
+// semana a semana, por coordenador — pra reunião, mesmo recorte de semanas do gráfico principal do
+// pacote. PREVISTO agrupado pelo responsável DA PLANILHA DE METAS (r.metaRespIdx — a mesma linha que
+// tem a data prevista), com fallback pro responsável da semanal só se a casa não tiver metas
+// (META_ROWS vazio/casa sem match). REALIZADO continua agrupado pelo responsável da planilha SEMANAL
+// (quem realmente fez) e pela semana REAL de conclusão (vigFim) — nisso nada mudou, e é por isso que
+// "quantas essa pessoa concluiu NESSA semana" segue batendo com o mapa (mesma lógica de vigFim real).
+// Uma pessoa pode aparecer com previsto e realizado vindos de contagens DIFERENTES de casas, se o
+// replanejamento reatribuiu o pacote pra outro responsável — isso é esperado, não é bug.
+// Achado com dado real (2026-09-11): pacote 24-GESSO INTERNO mostrando 31 previstas pro Iury na
+// semana 1 quando a planilha de metas só listava 14 — a DATA vinha certa (da metas), mas o
+// RESPONSÁVEL usado pra agrupar vinha da semanal, misturando as duas fontes numa mesma conta.
 function respWeeklyBreakdown(pacoteIdx, weekOrds){
   const rs = rowsForPacote(pacoteIdx);
-  const byResp = new Map();
-  rs.forEach(r=>{ if(!byResp.has(r.respIdx)) byResp.set(r.respIdx, []); byResp.get(r.respIdx).push(r); });
-  return [...byResp.entries()].map(([respIdx, list])=>({
-    respIdx, nome: LOOKUPS.responsaveis[respIdx]||'—',
-    weeks: weeklySeriesForWeeks(list, weekOrds),
+  const metaBuckets = new Map(); // respIdx -> Map(weekOrd -> contagem de previsto)
+  const realBuckets = new Map(); // respIdx -> Map(weekOrd -> contagem de realizado)
+  const names = new Map();
+  function bump(buckets, respIdx, weekOrd){
+    if(!buckets.has(respIdx)) buckets.set(respIdx, new Map());
+    const wm = buckets.get(respIdx);
+    wm.set(weekOrd, (wm.get(weekOrd)||0)+1);
+  }
+  rs.forEach(r=>{
+    const metaRespIdx = r.metaRespIdx!=null ? r.metaRespIdx : r.respIdx;
+    const metaFim = r.metaVigFim!=null ? r.metaVigFim : r.vigFim;
+    if(metaFim!=null && metaFim>=0){
+      bump(metaBuckets, metaRespIdx, weekOfOrd(metaFim));
+      if(!names.has(metaRespIdx)) names.set(metaRespIdx, LOOKUPS.responsaveis[metaRespIdx]||'—');
+    }
+    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0){
+      bump(realBuckets, r.respIdx, weekOfOrd(r.vigFim));
+      if(!names.has(r.respIdx)) names.set(r.respIdx, LOOKUPS.responsaveis[r.respIdx]||'—');
+    }
+  });
+  const allResp = new Set([...metaBuckets.keys(), ...realBuckets.keys()]);
+  return [...allResp].map(respIdx=>({
+    respIdx, nome: names.get(respIdx)||'—',
+    weeks: weekOrds.map(w=>({
+      ord:w, label: fmtDateShort(w),
+      meta: (metaBuckets.get(respIdx)||new Map()).get(w) || 0,
+      realizado: (realBuckets.get(respIdx)||new Map()).get(w) || 0,
+    })),
   })).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
 }
 function causasForPacote(pacoteIdx){
