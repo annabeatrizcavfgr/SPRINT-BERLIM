@@ -2108,7 +2108,7 @@ function periodCompare(pacoteIdx){
   const mc = monthCompare(rowsForPacote(pacoteIdx));
   return { curLabel: monthLabel(mc.cur), curCount: mc.curCount, prevLabel: monthLabel(mc.prev), prevCount: mc.prevCount, delta: mc.delta };
 }
-// data de conclusão do pacote segundo a linha de base (contratual) — a mais tardia entre as casas
+// data de conclusão do pacote segundo a linha de base — a mais tardia entre as casas
 function baselineFimForPacote(pacoteIdx){
   const valid = rowsForPacote(pacoteIdx).map(r=>r.baseFim).filter(v=>v!=null && v>=0);
   return valid.length ? Math.max(...valid) : null;
@@ -2167,7 +2167,7 @@ function estruturalCheck(pacoteIdx){
 function packageRanking(){
   return LOOKUPS.pacotes.map((name,idx)=>{
     const a = blocoA(idx);
-    // desvio = IDP-1 (realizado ÷ BASE, a linha de base contratual) — não cumprimentoCronograma (que é
+    // desvio = IDP-1 (realizado ÷ BASE, a linha de base) — não cumprimentoCronograma (que é
     // ÷ previsto, a meta do mês). "Maior desvio primeiro" precisa refletir atraso vs. contrato, não vs.
     // a meta vigente (que já pode ter sido replanejada pra "esconder" o atraso original).
     const desvio = a.aderenciaContrato==null ? null : a.aderenciaContrato-1;
@@ -3236,9 +3236,9 @@ function renderGeral(){
       <table class="rank-table">
         <thead><tr>
           <th>Pacote</th>
-          <th style="min-width:120px;" title="Casas realizadas sobre o total de casas do pacote. Marcador: % da Linha de base (prazo contratual original) que já deveria estar pronta nesta data. Sem cor de status — é só o avanço físico bruto.">Avanço físico</th>
-          <th style="min-width:120px;" title="Realizado acumulado sobre a Base acumulada (o que a Linha de base — prazo contratual original — diz que já deveria estar pronto nesta data). Abaixo de 85% vermelho, de 85% a 100% amarelo, 100% ou mais verde.">Realizado / Base</th>
-          <th title="Índice de Desempenho de Prazo = Realizado acumulado ÷ Base acumulada. Abaixo de 1 indica atraso em relação à linha de base contratual.">IDP</th>
+          <th style="min-width:120px;" title="Casas realizadas sobre o total de casas do pacote. Marcador: % da Linha de base que já deveria estar pronta nesta data. Sem cor de status — é só o avanço físico bruto.">Avanço físico</th>
+          <th style="min-width:120px;" title="Realizado acumulado sobre a Base acumulada (o que a Linha de base diz que já deveria estar pronto nesta data). Abaixo de 85% vermelho, de 85% a 100% amarelo, 100% ou mais verde.">Realizado / Base</th>
+          <th title="Índice de Desempenho de Prazo = Realizado acumulado ÷ Base acumulada. Abaixo de 1 indica atraso em relação à linha de base.">IDP</th>
           <th style="min-width:120px;" title="Casas concluídas neste pacote dentro das semanas do mês selecionado, comparado à meta do mês.">${mesColLabel}</th>
         </tr></thead>
         <tbody>
@@ -3499,7 +3499,7 @@ function renderExpandedPanel(p){
           <span class="stat-sub">${(()=>{
             if(proj.baselineFim==null) return 'sem linha de base cadastrada';
             if(proj.concluido) return 'pacote já concluído';
-            if(proj.dataConclusao==null) return 'data contratual original';
+            if(proj.dataConclusao==null) return 'sem projeção pra comparar';
             const diffWeeks = Math.round((proj.dataConclusao-proj.baselineFim)/7);
             if(diffWeeks>0) return '~'+diffWeeks+' semana(s) depois da linha de base';
             if(diffWeeks<0) return '~'+Math.abs(diffWeeks)+' semana(s) antes da linha de base';
@@ -3616,12 +3616,12 @@ function openFiltroModal(){
 const PAINEL_COL_DEFS = [
   {id:'semanas', label:'Semanas (semana a semana)'},
   {id:'totalMes', label:'Total no mês', desc:'Casas concluídas dentro das semanas do mês selecionado, sobre a meta do mês (realizado/meta).'},
-  {id:'base', label:'Base', desc:'Casas que já deveriam estar concluídas segundo a Linha de base — o prazo contratual original, sem replanejamentos.'},
+  {id:'base', label:'Base', desc:'Casas que já deveriam estar concluídas segundo a Linha de base.'},
   {id:'real', label:'Real. acum.', desc:'Casas efetivamente concluídas até esta semana.'},
-  {id:'idp', label:'IDP', desc:'Índice de Desempenho de Prazo = Realizado acumulado ÷ Base acumulada. Abaixo de 1 indica atraso em relação à linha de base contratual.'},
+  {id:'idp', label:'IDP', desc:'Índice de Desempenho de Prazo = Realizado acumulado ÷ Base acumulada. Abaixo de 1 indica atraso em relação à linha de base.'},
   {id:'ritmo', label:'Ritmo médio', desc:'Média de casas concluídas por semana nas últimas 8 semanas com dados.'},
   {id:'terminoEstimado', label:'Término estimado', desc:'Data prevista de conclusão do pacote no ritmo atual (sempre uma sexta-feira). "Concluído" quando não resta nenhuma casa.'},
-  {id:'terminoBase', label:'Término linha de base', desc:'Data de término segundo a Linha de base — o prazo contratual original, sem replanejamentos.'},
+  {id:'terminoBase', label:'Término linha de base', desc:'Data de término segundo a Linha de base.'},
 ];
 function painelColVisible(id){ return !PAINEL_HIDDEN_COLS.includes(id); }
 function openColunasModal(){
