@@ -2083,19 +2083,19 @@ function toneForWeek(w){
   if(!w.meta) return 'neutral';
   return w.realizado>=w.meta ? 'good' : 'critical';
 }
-// "Meta do mês"/Total mês: sempre pela data PLANEJADA da planilha de Metas (ver applyMetasOverride) —
-// uma casa concluída fora do mês planejado ainda conta no mês em que estava PREVISTA, não no mês em
-// que realmente terminou.
+// "Meta do mês": a META continua pela data PLANEJADA da planilha de Metas (uma casa prevista pra
+// este mês soma na meta mesmo que só termine depois). O REALIZADO (2026-09-14, a pedido dela — antes
+// batia pela data PREVISTA e podia dar um total menor que a soma das colunas Semana 1-5, que sempre
+// usam a data REAL) agora bate exatamente com a soma das colunas Semana N: conta toda casa concluída
+// de fato (vigFim) dentro de uma das semanas do mês, mesmo que tenha sido prevista pra outro mês.
 function mesMetricsForPacote(pacoteIdx, weekOrds){
   const rs = rowsForPacote(pacoteIdx);
   const weekSet = new Set(weekOrds);
   let meta=0, realizado=0;
   rs.forEach(r=>{
     const fim = r.metaVigFim!=null ? r.metaVigFim : r.vigFim;
-    if(fim!=null && fim>=0 && weekSet.has(weekOfOrd(fim))){
-      meta++;
-      if(r.realizadoPct>=100) realizado++;
-    }
+    if(fim!=null && fim>=0 && weekSet.has(weekOfOrd(fim))) meta++;
+    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && weekSet.has(weekOfOrd(r.vigFim))) realizado++;
   });
   return { meta, realizado, pct: meta ? realizado/meta : null };
 }
