@@ -1125,15 +1125,15 @@ function createLocalDb(){
   return { doc: docRef, collection: collectionRef };
 }
 /* ===================================================================
-   LOGIN / PERMISSOES (Supabase Auth) - so existe nessa hospedagem propria (Vercel); dentro do Artifact
-   da Claude, initAuth() devolve true na hora e nada disso entra em acao.
+   LOGIN / PERMISSÕES (Supabase Auth) - só existe nessa hospedagem própria (Vercel); dentro do Artifact
+   da Claude, initAuth() devolve true na hora e nada disso entra em ação.
 =================================================================== */
 function traduzErroAuth(error){
   const m = (error && error.message) || String(error);
   if(/Invalid login credentials/i.test(m)) return 'E-mail ou senha incorretos.';
-  if(/User already registered/i.test(m)) return 'Ja existe uma conta com esse e-mail - tente Entrar.';
+  if(/User already registered/i.test(m)) return 'Já existe uma conta com esse e-mail - tente Entrar.';
   if(/Password should be at least/i.test(m)) return 'A senha precisa ter pelo menos 6 caracteres.';
-  if(/Unable to validate email address/i.test(m)) return 'E-mail invalido.';
+  if(/Unable to validate email address/i.test(m)) return 'E-mail inválido.';
   return m;
 }
 async function fetchMyRole(){
@@ -1161,12 +1161,12 @@ function updateAuthUi(){
 function loginScreenHtml(msg){
   return `
     <h3>Entrar no Jardins Berlim</h3>
-    <p>Quem nunca usou pode criar uma conta - ela fica aguardando a aprovacao de um
+    <p>Quem nunca usou pode criar uma conta - ela fica aguardando a aprovação de um
     <strong>planejador</strong> antes de poder entrar.</p>
     ${msg ? `<p style="color:var(--critical); font-weight:600;">${msg}</p>` : ''}
     <div class="form-field"><label>E-mail</label><input type="email" id="loginEmail" autocomplete="email"></div>
     <div class="form-field"><label>Senha</label><input type="password" id="loginSenha" autocomplete="current-password"></div>
-    <div class="form-field"><label>Confirmar senha (so pra criar conta)</label><input type="password" id="loginSenhaConfirma" autocomplete="new-password"></div>
+    <div class="form-field"><label>Confirmar senha (só pra criar conta)</label><input type="password" id="loginSenhaConfirma" autocomplete="new-password"></div>
     <div class="modal-actions">
       <button class="btn" id="btnCriarConta">Criar conta</button>
       <button class="btn btn-primary" id="btnEntrar">Entrar</button>
@@ -1175,8 +1175,8 @@ function loginScreenHtml(msg){
 }
 function waitingApprovalHtml(){
   return `
-    <h3>Aguardando aprovacao</h3>
-    <p>Sua conta (<strong>${CURRENT_USER ? CURRENT_USER.email : ''}</strong>) foi criada e esta
+    <h3>Aguardando aprovação</h3>
+    <p>Sua conta (<strong>${CURRENT_USER ? CURRENT_USER.email : ''}</strong>) foi criada e está
     esperando um planejador aprovar o acesso. Assim que for aprovada, clique em "Tentar de novo".</p>
     <div class="modal-actions">
       <button class="btn" id="btnSairEspera">Sair</button>
@@ -1216,12 +1216,12 @@ function showLoginScreen(msg){
   };
   document.getElementById('btnCriarConta').onclick = async ()=>{
     const email = emailEl.value.trim(), senha = senhaEl.value, confirma = confirmaEl.value;
-    if(!email || !senha){ showLoginScreen('Preencha e-mail e senha (minimo 6 caracteres) pra criar a conta.'); return; }
-    if(senha !== confirma){ showLoginScreen('As senhas nao sao iguais.'); return; }
+    if(!email || !senha){ showLoginScreen('Preencha e-mail e senha (mínimo 6 caracteres) pra criar a conta.'); return; }
+    if(senha !== confirma){ showLoginScreen('As senhas não são iguais.'); return; }
     const { data, error } = await AUTH.auth.signUp({ email, password: senha });
     if(error){ showLoginScreen(traduzErroAuth(error)); return; }
     if(!data.session){
-      showLoginScreen('Conta criada! Se o projeto pedir confirmacao de e-mail, confirme antes de entrar - depois disso, aguarde a aprovacao de um planejador.');
+      showLoginScreen('Conta criada! Se o projeto pedir confirmação de e-mail, confirme antes de entrar - depois disso, aguarde a aprovação de um planejador.');
       return;
     }
     closeModal();
@@ -1270,14 +1270,14 @@ async function initAuth(){
   return false;
 }
 async function openUsersModal(){
-  if(MY_ROLE !== 'planejador'){ toast('So planejador acessa essa tela.', 'warn'); return; }
+  if(MY_ROLE !== 'planejador'){ toast('Só planejador acessa essa tela.', 'warn'); return; }
   let users = [];
   try{
     const r = await fetch('/api/role?list=true', { headers: await authHeaders() });
     const j = await r.json();
     if(!r.ok) throw new Error(j.error||'falha ao carregar');
     users = j.users||[];
-  }catch(e){ toast('Falha ao carregar usuarios: '+(e && e.message?e.message:e), 'err'); return; }
+  }catch(e){ toast('Falha ao carregar usuários: '+(e && e.message?e.message:e), 'err'); return; }
   async function patchUser(email, patch){
     const r = await fetch('/api/role', {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(Object.assign({email}, patch))});
     const j = await r.json();
@@ -1287,10 +1287,10 @@ async function openUsersModal(){
     const pendentes = users.filter(u=>u.status!=='approved');
     const aprovados = users.filter(u=>u.status==='approved');
     openModal(`
-      <h3>Usuarios</h3>
-      <p>Quem pode entrar e o que cada um pode fazer. "Planejador" edita tudo; "visualizador" so olha.</p>
+      <h3>Usuários</h3>
+      <p>Quem pode entrar e o que cada um pode fazer. "Planejador" edita tudo; "visualizador" só olha.</p>
       ${pendentes.length ? `
-        <div class="form-field"><label>Aguardando aprovacao</label></div>
+        <div class="form-field"><label>Aguardando aprovação</label></div>
         <div style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px; margin-bottom:14px;">
           ${pendentes.map(u=>`
             <div class="list-row">
@@ -1303,14 +1303,14 @@ async function openUsersModal(){
       <div style="max-height:280px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px;">
         ${aprovados.length ? aprovados.map(u=>`
           <div class="list-row">
-            <div>${u.email}${u.email===(CURRENT_USER && CURRENT_USER.email) ? ' <span class="badge badge-accent">voce</span>' : ''}</div>
+            <div>${u.email}${u.email===(CURRENT_USER && CURRENT_USER.email) ? ' <span class="badge badge-accent">você</span>' : ''}</div>
             <select class="inline" data-userrole="${u.email}" ${u.email===(CURRENT_USER && CURRENT_USER.email)?'disabled':''}>
               <option value="visualizador" ${u.role==='visualizador'?'selected':''}>Visualizador</option>
               <option value="planejador" ${u.role==='planejador'?'selected':''}>Planejador</option>
             </select>
-          </div>`).join('') : '<p class="empty-note">Ninguem aprovado ainda.</p>'}
+          </div>`).join('') : '<p class="empty-note">Ninguém aprovado ainda.</p>'}
       </div>
-      <div class="modal-actions"><button class="btn btn-primary" id="usersFechar">Concluido</button></div>
+      <div class="modal-actions"><button class="btn btn-primary" id="usersFechar">Concluído</button></div>
     `);
     document.querySelectorAll('[data-aprovar]').forEach(btn=>{
       btn.onclick = async ()=>{
