@@ -2666,7 +2666,9 @@ function svgBarWeekly(series){
     const gx = padL + i*groupW + groupW/2;
     const metaH = (s.meta/maxVal)*plotH, realH = (s.realizado/maxVal)*plotH;
     const color = s.realizado>=s.meta ? 'var(--good)' : 'var(--critical)';
-    const metaX = gx-barW-2, realX = gx+2;
+    // realizado à esquerda, previsto à direita (2026-09-15, a pedido dela) — casa com a ordem da
+    // tabela "Por coordenador" ao lado, que mostra "realizado/previsto" nessa mesma sequência.
+    const realX = gx-barW-2, metaX = gx+2;
     const metaTopY = padT+plotH-metaH, realTopY = padT+plotH-realH;
     bars += `<rect x="${metaX}" y="${metaTopY}" width="${barW}" height="${Math.max(metaH,0)}" fill="var(--border)"/>`;
     bars += `<rect x="${realX}" y="${realTopY}" width="${barW}" height="${Math.max(realH,0)}" fill="${color}"/>`;
@@ -2676,9 +2678,9 @@ function svgBarWeekly(series){
   });
   return `<div class="chart-wrap"><svg viewBox="0 0 ${w} ${h}" class="chart">${grid}${bars}${tags}${labels}</svg></div>
   <div class="pill-row" style="margin-top:6px;">
-    <span class="badge badge-neutral">▮ previsto</span>
     <span class="badge badge-good">▮ realizado ≥ meta</span>
     <span class="badge badge-critical">▮ realizado &lt; meta</span>
+    <span class="badge badge-neutral">▮ previsto</span>
   </div>`;
 }
 function svgFreqChart(freq){
