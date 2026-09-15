@@ -2510,9 +2510,10 @@ function paintCausasDetalhe(){
       <h3 class="section-title" style="margin:0 0 8px 0;">${CAUSAS_SELECTED_NOME} <span style="text-transform:none; letter-spacing:0; font-weight:400;">— ${rows.length} registro${rows.length===1?'':'s'}</span></h3>
       ${rows.length ? `
       <table class="rank-table">
-        <thead><tr><th>Semana</th><th style="text-align:left;">Observação relatada</th></tr></thead>
+        <thead><tr><th style="text-align:left;">Pacote</th><th>Semana</th><th style="text-align:left;">Observação relatada</th></tr></thead>
         <tbody>
           ${rows.map(c=>`<tr>
+            <td data-label="Pacote" style="text-align:left;">${LOOKUPS.pacotes[c.pacoteIdx]||'—'}</td>
             <td class="mono" data-label="Semana">${c.weekOrd!=null?fmtDateShort(c.weekOrd):'—'}</td>
             <td data-label="Observação" style="text-align:left; ${c.obs?'':'color:var(--text-muted);'}">${c.obs ? String(c.obs).replace(/</g,'&lt;') : 'sem observação registrada'}</td>
           </tr>`).join('')}
@@ -2785,9 +2786,9 @@ function svgPareto(items){
   if(!items.length) return '<p class="empty-note">Nenhuma causa registrada ainda para este recorte.</p>';
   const data = paretoData(items);
   const n = data.length;
-  const barW = 46, gap = 22, padL = 46, padR = 46, padT = 18, padB = 92;
+  const barW = 34, gap = 16, padL = 40, padR = 40, padT = 14, padB = 68;
   const plotW = n*(barW+gap);
-  const w = padL + plotW + padR, h = 300;
+  const w = padL + plotW + padR, h = 200;
   const plotH = h - padT - padB;
   const maxCount = Math.max(1, ...data.map(d=>d.count));
   let gridLeft='', gridRight='', bars='', tags='', labels='', dots='';
@@ -2817,7 +2818,11 @@ function svgPareto(items){
     labels += `<text data-causa-nome="${nomeAttr}" x="0" y="0" transform="translate(${cx} ${h-padB+14}) rotate(-40)" text-anchor="end" class="chart-label" style="font-size:10.5px;">${truncateLabel(d.name,22)}</text>`;
   });
   const line = `<polyline points="${linePts.join(' ')}" fill="none" stroke="var(--critical)" stroke-width="2"/>`;
-  return `<div class="chart-wrap"><svg viewBox="0 0 ${w} ${h}" class="chart" style="min-width:${Math.max(480,w)}px;">${gridLeft}${ref80}${bars}${tags}${line}${dots}${gridRight}${labels}</svg></div>
+  // tamanho FIXO em pixels (não width:100%) — sem isso, o SVG esticava pra preencher a largura toda
+  // do card (bem largo no Painel Gerencial) e, como o viewBox tem proporção quase quadrada com poucas
+  // categorias, a altura inflava junto (ficava enorme). width/height explícitos aqui vencem o
+  // width:100%;height:auto padrão de ".chart" — se não couber na tela, rola por dentro (chart-wrap).
+  return `<div class="chart-wrap"><svg viewBox="0 0 ${w} ${h}" class="chart" style="width:${w}px; height:${h}px; min-width:0;">${gridLeft}${ref80}${bars}${tags}${line}${dots}${gridRight}${labels}</svg></div>
   <div class="pill-row" style="margin-top:6px;">
     <span class="badge badge-accent">▮ ocorrências (eixo esq.)</span>
     <span class="badge badge-critical">— % acumulado (eixo dir.)</span>
