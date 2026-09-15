@@ -2973,7 +2973,6 @@ function paintMapa(){
   const rs = pacoteIdx!=null ? rowsForPacote(pacoteIdx) : [];
   const byCasa = new Map();
   rs.forEach(r=> byCasa.set(r.quadra+'|'+r.casa, r));
-  const pacoteName = pacoteIdx!=null ? (LOOKUPS.pacotes[pacoteIdx]||'') : '';
   const semanaAnalise = weekOfOrd(TODAY_ORD); // "semana de análise" = a semana do snapshot em vista
   svgEl.querySelectorAll('.jb-casa').forEach(el=>{
     const parts = (el.dataset.key||'').split('-');
@@ -2992,7 +2991,9 @@ function paintMapa(){
     else if(row.basePct>=100){ color='var(--critical)'; label='Casa em atraso'; } // atraso = vs. linha de base
     else { color='var(--map-neutral)'; label='Não executada'; }
     el.style.fill = color;
-    el.dataset.tip = 'Quadra '+String(q).padStart(2,'0')+' · Casa '+String(c).padStart(2,'0')+(pacoteName?' — '+pacoteName+': '+label:'');
+    // sem "Quadra"/"Casa" nem o nome do pacote (2026-09-15, a pedido dela) — o nome do pacote já
+    // aparece no título do card acima do mapa, então o tooltip fica só "QQ-CC - status".
+    el.dataset.tip = String(q).padStart(2,'0')+'-'+String(c).padStart(2,'0')+' - '+label;
   });
 }
 // mesma categorização usada pra colorir o mapa (paintMapa) e pra faixa de KPIs, só que contando em vez
