@@ -2243,6 +2243,21 @@ function orderedNamesUniverse(){
   const missing = names.filter(n=>!known.includes(n)).sort((a,b)=>a.localeCompare(b,'pt-BR'));
   return [...known, ...missing];
 }
+// pacotes na mesma ordem do SORT_MODE que está selecionado na tela agora (2026-09-15, a pedido dela —
+// "Ver só um pacote (reunião)" antes sempre usava a ordem manual/orderedNamesUniverse, ignorando
+// quando ela escolhia "Maior desvio primeiro"/"Nome (A–Z)"/etc no menu de ordenar da tabela).
+function orderedNamesForCurrentSort(){
+  return packageRanking().slice().sort(SORTERS[SORT_MODE]).map(p=>p.name);
+}
+// repinta só as <option> do "Ver só um pacote (reunião)" sem redesenhar a tela toda — usado quando o
+// SORT_MODE muda (ver troca do <select id="sortMode">), que só repinta a tabela (paintTable), não o
+// resto da tela; sem isso o <select> ficava com a ordem antiga até o próximo render completo.
+function refreshFocoSelectOptions(){
+  const sel = document.getElementById('focoPacoteSelect');
+  if(!sel) return;
+  sel.innerHTML = `<option value="">Todos os pacotes</option>` +
+    orderedNamesForCurrentSort().map(name=>{ const idx = LOOKUPS.pacotes.indexOf(name); return `<option value="${idx}" ${FOCO_PACOTE_IDX===idx?'selected':''}>${name}</option>`; }).join('');
+}
 // resolve a seleção salva (por nome) para o conjunto de índices atual; null = sem filtro (todos)
 function selectedIdxSet(){
   if(SELECTED_NAMES==null) return null;
@@ -3208,10 +3223,10 @@ function renderGeral(){
           <select class="inline" id="sortMode">${Object.keys(SORT_LABELS).map(k=>`<option value="${k}" ${k===SORT_MODE?'selected':''}>${SORT_LABELS[k]}</option>`).join('')}</select>
         </div>
         <div class="foco-row" style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-          <label style="font-size:12px; color:var(--text-muted); white-space:nowrap;" title="Segue a mesma sequência configurada em &quot;↕ Ordenar pacotes&quot;">Ver só um pacote (reunião):</label>
+          <label style="font-size:12px; color:var(--text-muted); white-space:nowrap;" title="Segue a mesma ordem escolhida no menu de ordenar ao lado (Maior desvio, Nome A-Z, ordem manual, etc)">Ver só um pacote (reunião):</label>
           <select class="inline" id="focoPacoteSelect" style="flex:1;">
             <option value="">Todos os pacotes</option>
-            ${orderedNamesUniverse().map(name=>{ const idx = LOOKUPS.pacotes.indexOf(name); return `<option value="${idx}" ${FOCO_PACOTE_IDX===idx?'selected':''}>${name}</option>`; }).join('')}
+            ${orderedNamesForCurrentSort().map(name=>{ const idx = LOOKUPS.pacotes.indexOf(name); return `<option value="${idx}" ${FOCO_PACOTE_IDX===idx?'selected':''}>${name}</option>`; }).join('')}
           </select>
           <button class="btn btn-sm" id="btnPresentation" title="Oculta os controles extras — fica só o título, este filtro (fixo no topo) e o pacote em foco">${PRESENTATION_MODE?'✖ Sair da apresentação':'🖥️ Modo apresentação'}</button>
         </div>
@@ -3256,6 +3271,9 @@ function renderGeral(){
   document.getElementById('sortMode').addEventListener('change', e=>{
     SORT_MODE = e.target.value; saveUiPrefs();
     paintTable(document.getElementById('pkgSearch').value);
+    // "Ver só um pacote (reunião)" precisa refletir a nova ordem na hora — paintTable só repinta a
+    // tabela, então sem isso o <select> ficava com a lista da ordenação anterior até o próximo render.
+    refreshFocoSelectOptions();
   });
   wireMapaCard();
 
