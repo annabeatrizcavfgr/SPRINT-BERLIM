@@ -2461,7 +2461,7 @@ function paintCausasPareto(){
   const bd = document.getElementById('causasPeriodoBtn'); if(bd) bd.textContent = 'Período: '+causasPeriodoSummary();
   });
 }
-// seleção múltipla de pacotes pra análise de causas — mesmo padrão do openFiltroModal (checkbox list,
+// seleção múltipla de pacotes pra análise de causas — mesmo padrão do openPacotesModal (checkbox list,
 // "Selecionar todos" volta pra null, "Limpar seleção" esvazia)
 function openCausasPacoteModal(){
   function paint(){
@@ -3219,8 +3219,7 @@ function renderGeral(){
           <span class="footer-note" style="padding:0;">(${visible.length} de ${ranking.length})</span>
           <span style="flex:1"></span>
           <button class="btn btn-sm" id="btnMeses">📅 Gerenciar meses</button>
-          <button class="btn btn-sm" id="btnFiltrar">☰ Filtrar pacotes</button>
-          <button class="btn btn-sm" id="btnOrdenar">↕ Ordenar pacotes</button>
+          <button class="btn btn-sm" id="btnPacotes" title="Escolher quais pacotes aparecem e em que ordem">☰↕ Pacotes</button>
           <select class="inline" id="sortMode">${Object.keys(SORT_LABELS).map(k=>`<option value="${k}" ${k===SORT_MODE?'selected':''}>${SORT_LABELS[k]}</option>`).join('')}</select>
         </div>
         <div class="foco-row" style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
@@ -3262,9 +3261,8 @@ function renderGeral(){
     <select class="inline" id="mesSelect" title="Mês de apresentação">
       ${MESES.length ? MESES.map(m=>`<option value="${m.id}" ${mes&&mes.id===m.id?'selected':''}>${m.label} (${m.weekOrds.length} sem.)</option>`).join('') : '<option value="">Nenhum configurado</option>'}
     </select>`;
-  document.getElementById('btnFiltrar').onclick = openFiltroModal;
+  document.getElementById('btnPacotes').onclick = openPacotesModal;
   document.getElementById('btnMeses').onclick = openMesesModal;
-  document.getElementById('btnOrdenar').onclick = openOrdenarModal;
   document.getElementById('mesSelect').addEventListener('change', e=>{
     SELECTED_MES_ID = e.target.value || null; saveUiPrefs();
     paintTable(document.getElementById('pkgSearch').value);
@@ -3386,7 +3384,7 @@ function renderPainelGerencial(){
         <span class="footer-note" style="padding:0;">(${visible.length} de ${ranking.length})</span>
         <span style="flex:1"></span>
         <button class="btn btn-sm" id="btnMesesP">📅 Gerenciar meses</button>
-        <button class="btn btn-sm" id="btnFiltrarP">☰ Filtrar pacotes</button>
+        <button class="btn btn-sm" id="btnPacotesP" title="Escolher quais pacotes aparecem e em que ordem">☰↕ Pacotes</button>
         <button class="btn btn-sm" id="btnColunasP">Colunas</button>
         <select class="inline" id="sortModeP">${Object.keys(SORT_LABELS).map(k=>`<option value="${k}" ${k===SORT_MODE?'selected':''}>${SORT_LABELS[k]}</option>`).join('')}</select>
       </div>
@@ -3455,7 +3453,7 @@ function renderPainelGerencial(){
   wireMapaCard();
   wireQuadraDetails();
   wireCausasAnalise();
-  document.getElementById('btnFiltrarP').onclick = openFiltroModal;
+  document.getElementById('btnPacotesP').onclick = openPacotesModal;
   document.getElementById('btnMesesP').onclick = openMesesModal;
   document.getElementById('btnColunasP').onclick = openColunasModal;
   document.getElementById('mesSelectP').addEventListener('change', e=>{
@@ -3625,45 +3623,91 @@ function wireExpandedPanel(wrap){
   if(panelRow) panelRow.addEventListener('click', e=>e.stopPropagation());
 }
 
-function openFiltroModal(){
-  const ranking = packageRanking();
-  const sel = selectedIdxSet();
+// Tela única de "Filtrar e ordenar pacotes" (2026-09-15, substitui os antigos "Filtrar pacotes" e
+// "Ordenar pacotes" separados, a pedido dela — fazia pouco sentido ordenar manualmente um pacote que
+// nem ia aparecer por estar desmarcado). Pacotes desmarcados continuam na lista (esmaecidos, ainda
+// arrastáveis/reordenáveis) em vez de sumir — ela pode deixá-los já posicionados pra quando reativar.
+function openPacotesModal(){
+  let order = orderedNamesUniverse();
+  let dragSrc = null;
   function paint(){
     const s = selectedIdxSet();
-    const prevList = document.getElementById('filtroList');
+    // com 50+ pacotes essa lista rola por dentro (max-height:380px) — sem isso, mover UM item pra
+    // baixo reconstrói o modal do zero e a lista volta pro topo (mesmo cuidado do antigo ordenar).
+    const prevList = document.getElementById('pacotesList');
     const scrollTop = prevList ? prevList.scrollTop : 0;
     openModal(`
-      <h3>Filtrar pacotes</h3>
-      <p>Escolha quais pacotes aparecem na lista e entram nos totais do topo.</p>
+      <h3>Filtrar e ordenar pacotes</h3>
+      <p>Marque quais pacotes aparecem na lista e entram nos totais do topo. Arraste pelo
+      <span class="mono">⠿</span> (ou use as setas) pra definir a ordem — inclusive dos desmarcados,
+      que ficam esmaecidos aqui mas guardam a posição pra quando você reativar. Selecionar
+      "${SORT_LABELS.manual}" no menu de ordenar usa essa sequência.</p>
       <div class="pill-row" style="margin-bottom:10px;">
-        <button class="btn btn-sm" id="filtroTodos">Selecionar todos</button>
-        <button class="btn btn-sm" id="filtroNenhum">Limpar seleção</button>
+        <button class="btn btn-sm" id="pacotesTodos">Selecionar todos</button>
+        <button class="btn btn-sm" id="pacotesNenhum">Limpar seleção</button>
+        <button class="btn btn-sm" id="pacotesResetar">Restaurar ordem A–Z</button>
       </div>
-      <div id="filtroList" style="max-height:320px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px;">
-        ${ranking.map(p=>`
-          <label style="display:flex; align-items:center; gap:9px; padding:7px 2px; cursor:pointer; border-bottom:1px solid var(--border);">
-            <input type="checkbox" data-pkgcheck="${p.idx}" ${(s==null || s.has(p.idx))?'checked':''}>
-            <span>${p.name}</span>
-          </label>`).join('')}
+      <div id="pacotesList" style="max-height:380px; overflow-y:auto; border:1px solid var(--border); border-radius:9px;">
+        ${order.map((name,i)=>{
+          const idx = LOOKUPS.pacotes.indexOf(name);
+          const checked = s==null || s.has(idx);
+          return `
+          <div class="ordenar-item" draggable="true" data-name="${name.replace(/"/g,'&quot;')}" style="${checked?'':'opacity:.45;'}">
+            <span class="ordenar-handle">⠿</span>
+            <input type="checkbox" data-pkgcheck="${idx}" ${checked?'checked':''}>
+            <span style="flex:1;">${name}</span>
+            <button class="btn btn-sm" data-up="${i}" ${i===0?'disabled':''} title="Mover pra cima">▲</button>
+            <button class="btn btn-sm" data-down="${i}" ${i===order.length-1?'disabled':''} title="Mover pra baixo">▼</button>
+          </div>`;
+        }).join('')}
       </div>
-      <div class="modal-actions"><button class="btn btn-primary" id="filtroFechar">Concluído</button></div>
+      <div class="modal-actions"><button class="btn btn-primary" id="pacotesFechar">Concluído</button></div>
     `);
-    document.getElementById('filtroList').scrollTop = scrollTop;
-    document.querySelectorAll('[data-pkgcheck]').forEach(cb=>{
+    const list = document.getElementById('pacotesList');
+    list.scrollTop = scrollTop;
+    list.querySelectorAll('.ordenar-item').forEach(item=>{
+      item.addEventListener('dragstart', ()=>{ dragSrc = item.dataset.name; item.classList.add('dragging'); });
+      item.addEventListener('dragend', ()=> item.classList.remove('dragging'));
+      item.addEventListener('dragover', e=> e.preventDefault());
+      item.addEventListener('drop', e=>{
+        e.preventDefault();
+        const destName = item.dataset.name;
+        if(!dragSrc || dragSrc===destName) return;
+        order = order.filter(n=>n!==dragSrc);
+        order.splice(order.indexOf(destName), 0, dragSrc);
+        applyOrder();
+      });
+    });
+    list.querySelectorAll('[data-up]').forEach(b=>{
+      b.onclick = ()=>{ const i = parseInt(b.dataset.up,10); if(i>0){ [order[i-1],order[i]]=[order[i],order[i-1]]; applyOrder(); } };
+    });
+    list.querySelectorAll('[data-down]').forEach(b=>{
+      b.onclick = ()=>{ const i = parseInt(b.dataset.down,10); if(i<order.length-1){ [order[i+1],order[i]]=[order[i],order[i+1]]; applyOrder(); } };
+    });
+    list.querySelectorAll('[data-pkgcheck]').forEach(cb=>{
       cb.onchange = ()=>{
         const idx = parseInt(cb.dataset.pkgcheck,10);
         const name = LOOKUPS.pacotes[idx];
-        let names = SELECTED_NAMES==null ? ranking.map(p=>p.name) : SELECTED_NAMES.slice();
+        let names = SELECTED_NAMES==null ? packageRanking().map(p=>p.name) : SELECTED_NAMES.slice();
         if(cb.checked){ if(!names.includes(name)) names.push(name); }
         else { names = names.filter(n=>n!==name); }
         SELECTED_NAMES = names;
         saveUiPrefs();
         render();
+        paint();
       };
     });
-    document.getElementById('filtroTodos').onclick = ()=>{ SELECTED_NAMES=null; saveUiPrefs(); render(); paint(); };
-    document.getElementById('filtroNenhum').onclick = ()=>{ SELECTED_NAMES=[]; saveUiPrefs(); render(); paint(); };
-    document.getElementById('filtroFechar').onclick = closeModal;
+    document.getElementById('pacotesTodos').onclick = ()=>{ SELECTED_NAMES=null; saveUiPrefs(); render(); paint(); };
+    document.getElementById('pacotesNenhum').onclick = ()=>{ SELECTED_NAMES=[]; saveUiPrefs(); render(); paint(); };
+    document.getElementById('pacotesResetar').onclick = ()=>{ order = order.slice().sort((a,b)=>a.localeCompare(b,'pt-BR')); applyOrder(); };
+    document.getElementById('pacotesFechar').onclick = closeModal;
+  }
+  function applyOrder(){
+    CUSTOM_ORDER = order.slice();
+    saveUiPrefs();
+    SORT_MODE = 'manual'; saveUiPrefs();
+    render();
+    paint();
   }
   paint();
 }
@@ -3774,65 +3818,6 @@ function openMesesModal(){
   paint();
 }
 
-function openOrdenarModal(){
-  let order = orderedNamesUniverse();
-  let dragSrc = null;
-  function paint(){
-    // com 50+ pacotes essa lista rola por dentro (max-height:380px) — sem isso, mover UM item pra
-    // baixo reconstrói o modal do zero e a lista volta pro topo, obrigando a rolar de novo até achar
-    // onde estava (o bug real que ela reportou: "Instalações de Prumadas" sumia da vista a cada seta).
-    const prevList = document.getElementById('ordList');
-    const scrollTop = prevList ? prevList.scrollTop : 0;
-    openModal(`
-      <h3>Ordenar pacotes manualmente</h3>
-      <p>Arraste pelo <span class="mono">⠿</span> pra reordenar, ou use as setas. Selecionar "${SORT_LABELS.manual}" no menu de ordenar da tela inicial usa essa sequência.</p>
-      <div id="ordList" style="max-height:380px; overflow-y:auto; border:1px solid var(--border); border-radius:9px;">
-        ${order.map((name,i)=>`
-          <div class="ordenar-item" draggable="true" data-name="${name.replace(/"/g,'&quot;')}">
-            <span class="ordenar-handle">⠿</span>
-            <span style="flex:1;">${name}</span>
-            <button class="btn btn-sm" data-up="${i}" ${i===0?'disabled':''} title="Mover pra cima">▲</button>
-            <button class="btn btn-sm" data-down="${i}" ${i===order.length-1?'disabled':''} title="Mover pra baixo">▼</button>
-          </div>`).join('')}
-      </div>
-      <div class="modal-actions">
-        <button class="btn" id="ordResetar">Restaurar A–Z</button>
-        <button class="btn btn-primary" id="ordFechar">Concluído</button>
-      </div>
-    `);
-    const list = document.getElementById('ordList');
-    list.scrollTop = scrollTop;
-    list.querySelectorAll('.ordenar-item').forEach(item=>{
-      item.addEventListener('dragstart', ()=>{ dragSrc = item.dataset.name; item.classList.add('dragging'); });
-      item.addEventListener('dragend', ()=> item.classList.remove('dragging'));
-      item.addEventListener('dragover', e=> e.preventDefault());
-      item.addEventListener('drop', e=>{
-        e.preventDefault();
-        const destName = item.dataset.name;
-        if(!dragSrc || dragSrc===destName) return;
-        order = order.filter(n=>n!==dragSrc);
-        order.splice(order.indexOf(destName), 0, dragSrc);
-        applyOrder();
-      });
-    });
-    list.querySelectorAll('[data-up]').forEach(b=>{
-      b.onclick = ()=>{ const i = parseInt(b.dataset.up,10); if(i>0){ [order[i-1],order[i]]=[order[i],order[i-1]]; applyOrder(); } };
-    });
-    list.querySelectorAll('[data-down]').forEach(b=>{
-      b.onclick = ()=>{ const i = parseInt(b.dataset.down,10); if(i<order.length-1){ [order[i+1],order[i]]=[order[i],order[i+1]]; applyOrder(); } };
-    });
-    document.getElementById('ordResetar').onclick = ()=>{ order = order.slice().sort((a,b)=>a.localeCompare(b,'pt-BR')); applyOrder(); };
-    document.getElementById('ordFechar').onclick = closeModal;
-  }
-  function applyOrder(){
-    CUSTOM_ORDER = order.slice();
-    saveUiPrefs();
-    SORT_MODE = 'manual'; saveUiPrefs();
-    render();
-    paint();
-  }
-  paint();
-}
 
 function snapshotRowHtml(s, delAttr, isMetas){
   // metas: dateRef é "AAAA-MM" (mês inteiro, ver confirmMonthModal), não uma data completa — fmtDate2
