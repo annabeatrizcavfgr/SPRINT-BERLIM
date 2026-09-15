@@ -295,6 +295,11 @@ svg.chart{width:100%; height:auto; display:block; min-width:480px;}
 .chart-label{font-family:var(--font-mono); font-size:9.5px; fill:var(--text-muted);}
 .chart-ylabel{font-family:var(--font-mono); font-size:9px; fill:var(--text-muted);}
 .chart-tag-text{font-family:var(--font-mono); font-size:9.5px; font-weight:700; font-variant-numeric:tabular-nums;}
+/* barras/rótulos clicáveis do Pareto de causas (ver svgPareto/wireParetoBars) — realce simples no
+   elemento selecionado; fill em CSS vence o atributo de apresentação do SVG, por isso funciona nas
+   barras (que já nascem com fill="var(--accent)" inline). */
+[data-causa-nome]{cursor:pointer;}
+.pareto-bar-selected{fill:var(--accent-strong) !important; font-weight:700;}
 
 .form-field{display:flex; flex-direction:column; gap:5px; margin-bottom:12px;}
 .form-field label{font-size:12px; font-weight:600; color:var(--text-muted);}
@@ -628,6 +633,10 @@ function preserveScroll(fn){
 let SORT_MODE = 'desvio_desc';
 let SELECTED_NAMES = null; // null = todos os pacotes; [] = nenhum; array = pacotes escolhidos
 let QUADRA_OPEN = lsGet('jb_quadra_open', false); // só abrir/fechar acordeão — não é bem "configuração", fica por navegador
+let MAPA_CARD_OPEN = lsGet('jb_mapa_card_open', false); // idem, pro card do mapa (2026-09-16)
+let CAUSAS_OPEN = lsGet('jb_causas_open', false); // idem, pro card de análise de causas (2026-09-16)
+let CAUSAS_FILTERED_LIST = []; // último recorte (pacote+período) usado no pareto — reaproveitado no clique de uma barra pra montar a lista de detalhe sem refiltrar
+let CAUSAS_SELECTED_NOME = null; // tipo de causa (nome) selecionado no pareto por clique; null = nenhuma lista de detalhe aberta
 let MAPA_PACOTE_IDX = null; // resolvido/validado a cada render (LOOKUPS pode não estar pronto ainda)
 let MAPA_VIEW = { scale:1, x:0, y:0 }; // pan/zoom do mapa — resetado sempre que o svg é remontado
 let CURRENT_SCREEN = 'home'; // 'home' | 'painel'
@@ -2434,15 +2443,16 @@ function causasPeriodoSummary(){
 }
 function causasAnaliseHtml(){
   return `
-  <div class="card" id="causasAnaliseCard" style="margin-top:14px;">
-    <h3 class="section-title" style="margin:0 0 10px 0;">📉 Análise de causas de não cumprimento</h3>
-    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+  <details class="card" id="causasAnaliseCard" style="margin-top:14px;" ${CAUSAS_OPEN?'open':''}>
+    <summary>📉 Análise de causas de não cumprimento <span class="chev">▸</span></summary>
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:10px 0;">
       <button class="btn btn-sm" id="causasPacoteBtn">Pacote: ${causasPacoteSummary()}</button>
       <button class="btn btn-sm" id="causasPeriodoBtn">Período: ${causasPeriodoSummary()}</button>
     </div>
     <p id="causasSampleNote" class="footer-note" style="padding:0; text-align:left; display:none;">⚠ ainda não há causas registradas — exibindo dados de exemplo pra ilustrar a análise</p>
     <div id="causasParetoWrap" style="margin-top:8px;"></div>
-  </div>`;
+    <div id="causasDetalheWrap"></div>
+  </details>`;
 }
 // repinta só o gráfico + os rótulos dos botões (chamado após qualquer mudança de filtro, inclusive
 // com o modal ainda aberto) — não redesenha o card inteiro
@@ -2455,11 +2465,60 @@ function paintCausasPareto(){
     (CAUSAS_FILTRO_PACOTES==null || CAUSAS_FILTRO_PACOTES.includes(c.pacoteIdx)) &&
     (CAUSAS_FILTRO_PERIODOS==null || CAUSAS_FILTRO_PERIODOS.some(p=>causaMatchesPeriodo(c.weekOrd,p)))
   );
+  CAUSAS_FILTERED_LIST = filtered;
+  // se o tipo selecionado (clique numa barra) não existe mais nesse recorte (ela trocou o filtro de
+  // pacote/período), fecha a lista de detalhe em vez de deixá-la mostrando um recorte antigo.
+  if(CAUSAS_SELECTED_NOME!=null && !filtered.some(c=>(CAUSAS_LISTA[c.causaId]||'—')===CAUSAS_SELECTED_NOME)){
+    CAUSAS_SELECTED_NOME = null;
+  }
   const wrap = document.getElementById('causasParetoWrap');
   if(wrap) wrap.innerHTML = svgPareto(causasPorTipo(filtered));
+  wireParetoBars();
   const bp = document.getElementById('causasPacoteBtn'); if(bp) bp.textContent = 'Pacote: '+causasPacoteSummary();
   const bd = document.getElementById('causasPeriodoBtn'); if(bd) bd.textContent = 'Período: '+causasPeriodoSummary();
   });
+}
+// clique numa barra/rótulo do pareto seleciona aquele tipo de causa (clicar de novo desmarca) e pinta,
+// logo abaixo, a lista "Semana - Observação relatada" com os registros daquele tipo dentro do recorte
+// atual (CAUSAS_FILTERED_LIST, já filtrado por pacote/período).
+function wireParetoBars(){
+  const marcarSelecionada = ()=>{
+    document.querySelectorAll('#causasParetoWrap [data-causa-nome]').forEach(x=>{
+      x.classList.toggle('pareto-bar-selected', x.dataset.causaNome===CAUSAS_SELECTED_NOME);
+    });
+  };
+  document.querySelectorAll('#causasParetoWrap [data-causa-nome]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const nome = el.dataset.causaNome;
+      CAUSAS_SELECTED_NOME = (CAUSAS_SELECTED_NOME===nome) ? null : nome;
+      marcarSelecionada();
+      paintCausasDetalhe();
+    });
+  });
+  marcarSelecionada();
+  paintCausasDetalhe();
+}
+function paintCausasDetalhe(){
+  const wrap = document.getElementById('causasDetalheWrap');
+  if(!wrap) return;
+  if(!CAUSAS_SELECTED_NOME){ wrap.innerHTML=''; return; }
+  const rows = CAUSAS_FILTERED_LIST
+    .filter(c => (CAUSAS_LISTA[c.causaId]||'—') === CAUSAS_SELECTED_NOME)
+    .sort((a,b)=> (b.weekOrd||0)-(a.weekOrd||0));
+  wrap.innerHTML = `
+    <div class="card" style="margin-top:10px; background:var(--surface-2);">
+      <h3 class="section-title" style="margin:0 0 8px 0;">${CAUSAS_SELECTED_NOME} <span style="text-transform:none; letter-spacing:0; font-weight:400;">— ${rows.length} registro${rows.length===1?'':'s'}</span></h3>
+      ${rows.length ? `
+      <table class="rank-table">
+        <thead><tr><th>Semana</th><th style="text-align:left;">Observação relatada</th></tr></thead>
+        <tbody>
+          ${rows.map(c=>`<tr>
+            <td class="mono" data-label="Semana">${c.weekOrd!=null?fmtDateShort(c.weekOrd):'—'}</td>
+            <td data-label="Observação" style="text-align:left; ${c.obs?'':'color:var(--text-muted);'}">${c.obs ? String(c.obs).replace(/</g,'&lt;') : 'sem observação registrada'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` : '<p class="empty-note">Sem registros pra esse tipo de causa neste recorte.</p>'}
+    </div>`;
 }
 // seleção múltipla de pacotes pra análise de causas — mesmo padrão do openPacotesModal (checkbox list,
 // "Selecionar todos" volta pra null, "Limpar seleção" esvazia)
@@ -2541,6 +2600,9 @@ function openCausasPeriodoModal(){
   paint();
 }
 function wireCausasAnalise(){
+  document.getElementById('causasAnaliseCard').addEventListener('toggle', e=>{
+    CAUSAS_OPEN = e.target.open; lsSet('jb_causas_open', CAUSAS_OPEN);
+  });
   document.getElementById('causasPacoteBtn').onclick = openCausasPacoteModal;
   document.getElementById('causasPeriodoBtn').onclick = openCausasPeriodoModal;
   paintCausasPareto();
@@ -2714,29 +2776,54 @@ function svgFreqChart(freq){
   });
   return `<div class="chart-wrap"><svg viewBox="0 0 ${w} ${h}" class="chart" style="min-width:520px;">${rows}</svg></div>`;
 }
-// Pareto genérico: barras (contagem, eixo esquerdo) + linha de % acumulado (eixo direito, 0-100%) —
-// reaproveitado pra qualquer recorte (por tipo de causa, por pacote, por semana)
-// Pareto em barras HORIZONTAIS — com poucas categorias (comum aqui: 1-15 tipos de causa) um eixo Y de
-// contagem vertical fica com ticks tipo "0 / 1 / 1" (Math.round de um máximo pequeno) e rótulos
-// rotacionados a -35° cortados em 16 caracteres viram ilegíveis ("Falta de materi…"). Barra horizontal
-// resolve as duas coisas de uma vez: a contagem vira o próprio comprimento da barra (sem eixo numérico
-// pra arredondar), e o rótulo tem a largura toda da linha, sem rotação nem corte agressivo.
+// Pareto de verdade (2026-09-16, a pedido dela): barras verticais (contagem, eixo esquerdo) + linha de
+// % acumulado com marcadores (eixo direito, 0-100%) + linha pontilhada nos 80% (referência clássica da
+// regra 80/20) — igual ao gráfico de Pareto "de livro-texto", não mais só barras horizontais com o %
+// acumulado escrito como texto (versão anterior). Cada barra/rótulo carrega data-causa-nome pra permitir
+// clicar e ver a lista de observações daquele tipo (ver wireParetoBars/paintCausasDetalhe).
 function svgPareto(items){
   if(!items.length) return '<p class="empty-note">Nenhuma causa registrada ainda para este recorte.</p>';
   const data = paretoData(items);
-  const rowH = 27, labelW = 300, barMaxW = 260, padL = 4, padR = 100;
-  const w = labelW + barMaxW + padR, h = data.length*rowH + 8;
+  const n = data.length;
+  const barW = 46, gap = 22, padL = 46, padR = 46, padT = 18, padB = 92;
+  const plotW = n*(barW+gap);
+  const w = padL + plotW + padR, h = 300;
+  const plotH = h - padT - padB;
   const maxCount = Math.max(1, ...data.map(d=>d.count));
-  let rows = '';
-  data.forEach((d,i)=>{
-    const y = i*rowH + 4;
-    const barW = Math.max(2, (d.count/maxCount)*barMaxW);
-    rows += `<text x="${padL}" y="${y+13}" class="chart-label" style="font-size:11px;">${truncateLabel(d.name,46)}</text>
-      <rect x="${labelW}" y="${y}" width="${barW}" height="18" rx="4" fill="var(--accent)"/>
-      <text x="${labelW+barW+8}" y="${y+13}" class="chart-tag-text" fill="var(--text)">${d.count} · ${Math.round(d.cumPct*100)}% acum.</text>`;
+  let gridLeft='', gridRight='', bars='', tags='', labels='', dots='';
+  const linePts = [];
+  [0,0.5,1].forEach(f=>{
+    const y = padT + plotH - f*plotH;
+    gridLeft += `<line x1="${padL}" y1="${y}" x2="${w-padR}" y2="${y}" class="chart-axis"/>`;
+    gridLeft += `<text x="${padL-8}" y="${y+3}" text-anchor="end" class="chart-ylabel">${Math.round(maxCount*f)}</text>`;
   });
-  return `<div class="chart-wrap"><svg viewBox="0 0 ${w} ${h}" class="chart" style="min-width:520px;">${rows}</svg></div>
-  <p class="footer-note" style="padding:6px 0 0 0; text-align:left;">Ordenado do maior pro menor problema · "% acum." = participação acumulada até esta linha</p>`;
+  [0,50,100].forEach(p=>{
+    const y = padT + plotH - (p/100)*plotH;
+    gridRight += `<text x="${w-padR+8}" y="${y+3}" text-anchor="start" class="chart-ylabel">${p}%</text>`;
+  });
+  const y80 = padT + plotH - 0.8*plotH;
+  const ref80 = `<line x1="${padL}" y1="${y80}" x2="${w-padR}" y2="${y80}" stroke="var(--critical)" stroke-width="1" stroke-dasharray="4,3" opacity=".55"/>`;
+  data.forEach((d,i)=>{
+    const nomeAttr = String(d.name).replace(/"/g,'&quot;');
+    const x = padL + i*(barW+gap);
+    const cx = x + barW/2;
+    const barH = (d.count/maxCount)*plotH;
+    const y = padT + plotH - barH;
+    const cy = padT + plotH - d.cumPct*plotH;
+    bars += `<rect data-causa-nome="${nomeAttr}" x="${x}" y="${y}" width="${barW}" height="${Math.max(barH,0)}" rx="4" fill="var(--accent)"/>`;
+    tags += svgTag(cx, y, d.count, 'var(--accent)', '#fff');
+    linePts.push(`${cx},${cy}`);
+    dots += `<circle data-causa-nome="${nomeAttr}" cx="${cx}" cy="${cy}" r="4" fill="var(--critical)"/>`;
+    labels += `<text data-causa-nome="${nomeAttr}" x="0" y="0" transform="translate(${cx} ${h-padB+14}) rotate(-40)" text-anchor="end" class="chart-label" style="font-size:10.5px;">${truncateLabel(d.name,22)}</text>`;
+  });
+  const line = `<polyline points="${linePts.join(' ')}" fill="none" stroke="var(--critical)" stroke-width="2"/>`;
+  return `<div class="chart-wrap"><svg viewBox="0 0 ${w} ${h}" class="chart" style="min-width:${Math.max(480,w)}px;">${gridLeft}${ref80}${bars}${tags}${line}${dots}${gridRight}${labels}</svg></div>
+  <div class="pill-row" style="margin-top:6px;">
+    <span class="badge badge-accent">▮ ocorrências (eixo esq.)</span>
+    <span class="badge badge-critical">— % acumulado (eixo dir.)</span>
+    <span class="badge badge-neutral">┄ referência 80%</span>
+  </div>
+  <p class="footer-note" style="padding:6px 0 0 0; text-align:left;">Clique numa barra pra ver as observações relatadas daquele tipo.</p>`;
 }
 // tabela compacta (mesmo estilo do Painel Gerencial) em vez de cartões grandes por semana — pra caber
 // junto com o gráfico, as causas e o mapa numa tela só na reunião de sprint (era o motivo do pedido:
@@ -3125,11 +3212,13 @@ function mapaCardHtml(ranking, layout){
     ? `<div class="mapa-body"><div class="mapa-map-col">${viewportBlock}</div>${mapaStatusSideHtml(entries)}</div>`
     : `${mapaStatusStripHtml(entries)}${viewportBlock}`;
   return `
-  <div class="card" id="mapaCard">
-    <h3 class="section-title" style="margin:0 0 10px 0;">🗺️ Mapa da obra</h3>
-    ${selectorBlock}
-    ${body}
-  </div>`;
+  <details class="card" id="mapaCard" ${MAPA_CARD_OPEN?'open':''}>
+    <summary>🗺️ Mapa da obra <span class="chev">▸</span></summary>
+    <div style="margin-top:10px;">
+      ${selectorBlock}
+      ${body}
+    </div>
+  </details>`;
 }
 // os 5 rótulos do layout "strip" (ver mapaStatusStripHtml) têm comprimentos bem diferentes — "Concluído
 // até a semana anterior" quebra em mais linhas que os outros, dependendo da largura do card (variável,
@@ -3144,6 +3233,9 @@ function alignMapaStatusLabels(){
   labels.forEach(l=> l.style.minHeight = max+'px');
 }
 function wireMapaCard(){
+  document.getElementById('mapaCard').addEventListener('toggle', e=>{
+    MAPA_CARD_OPEN = e.target.open; lsSet('jb_mapa_card_open', MAPA_CARD_OPEN);
+  });
   document.getElementById('mapaPacoteSelect').addEventListener('change', e=>{
     MAPA_PACOTE_IDX = e.target.value==='' ? null : parseInt(e.target.value,10); saveUiPrefs();
     paintMapa();
