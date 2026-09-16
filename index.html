@@ -2108,6 +2108,23 @@ function toneForWeek(w){
   if(!w.meta) return 'neutral';
   return w.realizado>=w.meta ? 'good' : 'critical';
 }
+// "Desvio até agora" (2026-09-16, pedido dela): soma meta/realizado só das semanas que JÁ VENCERAM
+// (ord <= semana vigente) — diferente da "Meta do mês", que soma o mês inteiro incluindo semanas
+// futuras que ainda não tiveram chance de acontecer. Recebe qualquer série já calculada no formato
+// {ord,meta,realizado} — mesmo shape de weeklySeriesForWeeks() e do `.weeks` de respWeeklyBreakdown(),
+// então serve tanto pro total do pacote quanto pra cada coordenador individualmente.
+function metaAteAgoraMetrics(series){
+  const due = series.filter(w=> w.ord==null || w.ord<=weekOfOrd(TODAY_ORD));
+  const meta = due.reduce((s,w)=>s+w.meta,0);
+  const realizado = due.reduce((s,w)=>s+w.realizado,0);
+  return { meta, realizado, desvio: realizado-meta };
+}
+function desvioAteAgoraCell(m){
+  if(!m || !m.meta) return '<span style="color:var(--text-muted);">—</span>';
+  const sign = m.desvio>0 ? '+' : '';
+  const color = m.desvio<0 ? 'var(--critical)' : m.desvio>0 ? 'var(--good)' : 'var(--text-muted)';
+  return `<span style="color:${color}; font-weight:700;">${m.realizado}/${m.meta} · ${sign}${m.desvio}</span>`;
+}
 // "Meta do mês": a META continua pela data PLANEJADA da planilha de Metas (uma casa prevista pra
 // este mês soma na meta mesmo que só termine depois). O REALIZADO (2026-09-14, a pedido dela — antes
 // batia pela data PREVISTA e podia dar um total menor que a soma das colunas Semana 1-5, que sempre
@@ -2875,12 +2892,14 @@ function renderCoordCards(data){
       <th>Coordenador</th>
       ${Array.from({length:nWeeks}, (_,i)=>`<th>Sem ${i+1}</th>`).join('')}
       <th>Total mês</th>
+      <th title="Casas que esse coordenador já deveria ter entregue até a semana vigente (soma da meta das semanas já vencidas) comparado ao que foi realmente entregue. Negativo = devendo, positivo = à frente.">Desvio até agora</th>
     </tr></thead>
     <tbody>
       ${data.map(d=>{
         const totalMeta = d.weeks.reduce((s,w)=>s+w.meta,0);
         const totalReal = d.weeks.reduce((s,w)=>s+w.realizado,0);
         const pct = totalMeta ? totalReal/totalMeta : null;
+        const ateAgora = metaAteAgoraMetrics(d.weeks);
         return `<tr>
           <td>${d.nome}</td>
           ${d.weeks.map(w=>{
@@ -2889,6 +2908,7 @@ function renderCoordCards(data){
             return `<td><div class="week-cell ${tone}"><div class="week-cell-nums">${w.realizado}<span class="sep">/</span>${w.meta}</div><div class="week-cell-pct">${pctW==null?'—':pctFmt(pctW)}</div></div></td>`;
           }).join('')}
           <td class="num-cell mono" style="color:${monthPaceColor(pct)}; font-weight:700;">${totalReal}/${totalMeta} · ${pctFmt(pct)}</td>
+          <td class="num-cell mono">${desvioAteAgoraCell(ateAgora)}</td>
         </tr>`;
       }).join('')}
     </tbody>
@@ -3421,10 +3441,12 @@ function renderGeral(){
           <th style="min-width:120px;" title="Realizado acumulado sobre a Base acumulada (o que a Linha de base diz que já deveria estar pronto nesta data). Abaixo de 85% vermelho, de 85% a 100% amarelo, 100% ou mais verde.">Realizado / Base</th>
           <th title="Índice de Desempenho de Prazo = Realizado acumulado ÷ Base acumulada. Abaixo de 1 indica atraso em relação à linha de base.">IDP</th>
           <th style="min-width:120px;" title="Casas concluídas neste pacote dentro das semanas do mês selecionado, comparado à meta do mês.">${mesColLabel}</th>
+          <th style="min-width:120px;" title="Casas que já deveriam ter sido entregues até a semana vigente (soma da meta das semanas já vencidas do mês) comparado ao que foi realmente entregue. Negativo = devendo, positivo = à frente.">Desvio até agora</th>
         </tr></thead>
         <tbody>
         ${rows.map(p=>{
           const mm = mesAtual ? mesMetricsForPacote(p.idx, mesAtual.weekOrds) : null;
+          const ateAgora = mesAtual ? metaAteAgoraMetrics(weeklySeriesForWeeks(rowsForPacote(p.idx), mesAtual.weekOrds)) : null;
           // sem badge de status aqui — o status (Atrasado/No prazo/etc) já fica visível pela cor da
           // barra de avanço físico (avancoBarHtml) e pela cor do IDP; retirado a pedido dela (2026-09-09)
           // pra deixar a linha do pacote mais baixa.
@@ -3437,8 +3459,9 @@ function renderGeral(){
             <td data-label="Realizado / Base">${baseRealizadoBarHtml(p)}</td>
             <td class="num-cell mono" data-label="IDP (realizado/base)" style="color:${tierColor(p.aderenciaContrato)}; font-weight:700;">${idpFmt(p.aderenciaContrato)}</td>
             <td data-label="${mesColLabel}">${metaMesBarHtml(mm)}</td>
+            <td class="num-cell mono" data-label="Desvio até agora">${desvioAteAgoraCell(ateAgora)}</td>
           </tr>
-          ${EXPANDED_IDX===p.idx ? `<tr class="pkg-panel-row"><td colspan="5">${renderExpandedPanel(p)}</td></tr>` : ''}`;}).join('')}
+          ${EXPANDED_IDX===p.idx ? `<tr class="pkg-panel-row"><td colspan="6">${renderExpandedPanel(p)}</td></tr>` : ''}`;}).join('')}
         </tbody>
       </table>
       </div>` : '<p class="empty-note">Nenhum pacote encontrado.</p>';
