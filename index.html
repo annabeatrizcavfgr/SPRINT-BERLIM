@@ -635,6 +635,9 @@ let SELECTED_NAMES = null; // null = todos os pacotes; [] = nenhum; array = paco
 let QUADRA_OPEN = lsGet('jb_quadra_open', false); // só abrir/fechar acordeão — não é bem "configuração", fica por navegador
 let MAPA_CARD_OPEN = lsGet('jb_mapa_card_open', false); // idem, pro card do mapa (2026-09-16)
 let CAUSAS_OPEN = lsGet('jb_causas_open', false); // idem, pro card de análise de causas (2026-09-16)
+let PAINEL_TABLE_OPEN = lsGet('jb_painel_table_open', true); // idem, pro card da tabela de pacotes do
+// Painel gerencial (2026-09-16) — começa ABERTO (diferente dos outros) por ser o conteúdo principal
+// da tela; sem isso ela chegaria no Painel gerencial e não veria nada de cara.
 let CAUSAS_FILTERED_LIST = []; // último recorte (pacote+período) usado no pareto — reaproveitado no clique de uma barra pra montar a lista de detalhe sem refiltrar
 let CAUSAS_SELECTED_NOME = null; // tipo de causa (nome) selecionado no pareto por clique; null = nenhuma lista de detalhe aberta
 let MAPA_PACOTE_IDX = null; // resolvido/validado a cada render (LOOKUPS pode não estar pronto ainda)
@@ -3450,16 +3453,19 @@ function renderPainelGerencial(){
     screen.innerHTML = `
     <div class="screen-enter">
       ${screenTabsHtml()}
-      <div class="card" style="margin-bottom:14px;">
-        <h2 class="section-title" style="margin:0 0 10px 0;">Painel gerencial</h2>
+      <details class="card" id="painelTableCard" style="margin-bottom:14px;" ${PAINEL_TABLE_OPEN?'open':''}>
+        <summary>Painel gerencial <span class="chev">▸</span></summary>
         <p class="empty-note">Configure um mês em "📅 Gerenciar meses" (na tela Sprint - Acompanhamento de metas) pra ver o acompanhamento semanal de todos os pacotes aqui.</p>
-      </div>
+      </details>
       ${mapaCardHtml(ranking, 'side')}
       ${quadraDetailsHtml()}
       ${causasAnaliseHtml()}
     </div>`;
     wireScreenTabs();
     document.getElementById('ctxMesSlot').innerHTML = `<label>Mês:</label><span class="footer-note" style="padding:0;">Nenhum configurado</span>`;
+    document.getElementById('painelTableCard').addEventListener('toggle', e=>{
+      PAINEL_TABLE_OPEN = e.target.open; lsSet('jb_painel_table_open', PAINEL_TABLE_OPEN);
+    });
     wireMapaCard();
     wireQuadraDetails();
     wireCausasAnalise();
@@ -3476,9 +3482,9 @@ function renderPainelGerencial(){
   screen.innerHTML = `
   <div class="screen-enter">
     ${screenTabsHtml()}
-    <div class="card" style="margin-bottom:14px;">
-      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
-        <h2 class="section-title" style="margin:0;">Painel gerencial — ${mes.label}</h2>
+    <details class="card" id="painelTableCard" style="margin-bottom:14px;" ${PAINEL_TABLE_OPEN?'open':''}>
+      <summary>Painel gerencial — ${mes.label} <span class="chev">▸</span></summary>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:10px 0 12px 0;">
         <span class="footer-note" style="padding:0;">(${visible.length} de ${ranking.length})</span>
         <span style="flex:1"></span>
         <button class="btn btn-sm" id="btnMesesP">📅 Gerenciar meses</button>
@@ -3536,7 +3542,7 @@ function renderPainelGerencial(){
         </tbody>
       </table>
       </div>
-    </div>
+    </details>
     ${mapaCardHtml(ranking, 'side')}
     ${quadraDetailsHtml()}
     ${causasAnaliseHtml()}
@@ -3548,6 +3554,9 @@ function renderPainelGerencial(){
     <select class="inline" id="mesSelectP" title="Mês de apresentação">
       ${MESES.map(m=>`<option value="${m.id}" ${mes.id===m.id?'selected':''}>${m.label} (${m.weekOrds.length} sem.)</option>`).join('')}
     </select>`;
+  document.getElementById('painelTableCard').addEventListener('toggle', e=>{
+    PAINEL_TABLE_OPEN = e.target.open; lsSet('jb_painel_table_open', PAINEL_TABLE_OPEN);
+  });
   wireMapaCard();
   wireQuadraDetails();
   wireCausasAnalise();
