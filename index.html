@@ -2807,7 +2807,7 @@ function svgPareto(items){
   if(!items.length) return '<p class="empty-note">Nenhuma causa registrada ainda para este recorte.</p>';
   const data = paretoData(items);
   const n = data.length;
-  const barW = 52, gap = 26, padL = 120, padR = 55, padT = 20, padB = 100;
+  const barW = 52, gap = 26, padL = 155, padR = 55, padT = 20, padB = 125;
   const plotW = n*(barW+gap);
   const w = padL + plotW + padR, h = 300;
   const plotH = h - padT - padB;
@@ -2827,16 +2827,21 @@ function svgPareto(items){
   const ref80 = `<line x1="${padL}" y1="${y80}" x2="${w-padR}" y2="${y80}" stroke="var(--critical)" stroke-width="1" stroke-dasharray="4,3" opacity=".55"/>`;
   data.forEach((d,i)=>{
     const nomeAttr = String(d.name).replace(/"/g,'&quot;');
+    // <title> em cada forma — nome completo aparece ao passar o mouse (2026-09-16, pedido dela: "queria
+    // que ficasse escrito de forma que consigo ler todo o titulo"). Não depende de caber no rótulo
+    // truncado abaixo, então funciona mesmo pras causas mais longas (ex: "Interferência com outras
+    // frentes de serviço", 41 caracteres) sem precisar alargar o gráfico pra caber todo mundo por extenso.
+    const titleTag = `<title>${nomeAttr}</title>`;
     const x = padL + i*(barW+gap);
     const cx = x + barW/2;
     const barH = (d.count/maxCount)*plotH;
     const y = padT + plotH - barH;
     const cy = padT + plotH - d.cumPct*plotH;
-    bars += `<rect data-causa-nome="${nomeAttr}" x="${x}" y="${y}" width="${barW}" height="${Math.max(barH,0)}" rx="4" fill="var(--accent)"/>`;
+    bars += `<rect data-causa-nome="${nomeAttr}" x="${x}" y="${y}" width="${barW}" height="${Math.max(barH,0)}" rx="4" fill="var(--accent)">${titleTag}</rect>`;
     tags += svgTag(cx, y, d.count, 'var(--accent)', '#fff');
     linePts.push(`${cx},${cy}`);
-    dots += `<circle data-causa-nome="${nomeAttr}" cx="${cx}" cy="${cy}" r="4" fill="var(--critical)"/>`;
-    labels += `<text data-causa-nome="${nomeAttr}" x="0" y="0" transform="translate(${cx} ${h-padB+16}) rotate(-40)" text-anchor="end" class="chart-label" style="font-size:11.5px;">${truncateLabel(d.name,18)}</text>`;
+    dots += `<circle data-causa-nome="${nomeAttr}" cx="${cx}" cy="${cy}" r="4" fill="var(--critical)">${titleTag}</circle>`;
+    labels += `<text data-causa-nome="${nomeAttr}" x="0" y="0" transform="translate(${cx} ${h-padB+16}) rotate(-40)" text-anchor="end" class="chart-label" style="font-size:11.5px;">${truncateLabel(d.name,26)}${titleTag}</text>`;
   });
   const line = `<polyline points="${linePts.join(' ')}" fill="none" stroke="var(--critical)" stroke-width="2"/>`;
   // tamanho FIXO em pixels, calculado só a partir do nº de categorias (3ª tentativa — histórico pra
@@ -2845,8 +2850,11 @@ function svgPareto(items){
   // gráfico mudar de tamanho quando a lista de detalhe (clique numa barra) aparecia/sumia embaixo dele
   // e alterava a largura disponível do card, o que ela reportou como confuso). Fixo em px nunca muda
   // de tamanho por causa de outra coisa na tela — só cresce/encolhe com o nº de causas registradas.
-  // padL bem largo pra caber a rotação de -40° do rótulo mais à esquerda sem cortar (ver viewBox
-  // "overflow:hidden" implícito do SVG).
+  // padL/padB bem largos pra caber a rotação de -40° do rótulo mais à esquerda/mais longo sem cortar
+  // (ver viewBox "overflow:hidden" implícito do SVG) — recalibrados em 2026-09-16 junto com o aumento
+  // de truncateLabel (18→26) pedido por ela ("queria que ficasse escrito de forma que consigo ler
+  // todo o titulo"); verificado via getBoundingClientRect() que nem a causa mais longa (41 caracteres,
+  // "Interferência com outras frentes de serviço") corta em nenhum dos lados.
   return `<div class="chart-wrap"><svg viewBox="0 0 ${w} ${h}" class="chart" style="width:${w}px; height:${h}px; min-width:0;">${gridLeft}${ref80}${bars}${tags}${line}${dots}${gridRight}${labels}</svg></div>
   <div class="pill-row" style="margin-top:6px;">
     <span class="badge badge-accent">▮ ocorrências (eixo esq.)</span>
