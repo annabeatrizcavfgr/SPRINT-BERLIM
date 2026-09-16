@@ -2257,9 +2257,14 @@ function orderedNamesUniverse(){
 }
 // pacotes na mesma ordem do SORT_MODE que está selecionado na tela agora (2026-09-15, a pedido dela —
 // "Ver só um pacote (reunião)" antes sempre usava a ordem manual/orderedNamesUniverse, ignorando
-// quando ela escolhia "Maior desvio primeiro"/"Nome (A–Z)"/etc no menu de ordenar da tabela).
+// quando ela escolhia "Maior desvio primeiro"/"Nome (A–Z)"/etc no menu de ordenar da tabela). Também
+// respeita o filtro de "☰↕ Pacotes" (2026-09-16, mesmo pedido dela) — antes listava TODOS os 57
+// pacotes aqui, mesmo os desmarcados no filtro.
 function orderedNamesForCurrentSort(){
-  return packageRanking().slice().sort(SORTERS[SORT_MODE]).map(p=>p.name);
+  const sel = selectedIdxSet();
+  return packageRanking()
+    .filter(p=> sel==null || sel.has(p.idx))
+    .slice().sort(SORTERS[SORT_MODE]).map(p=>p.name);
 }
 // repinta só as <option> do "Ver só um pacote (reunião)" sem redesenhar a tela toda — usado quando o
 // SORT_MODE muda (ver troca do <select id="sortMode">), que só repinta a tabela (paintTable), não o
@@ -3308,6 +3313,11 @@ function renderGeral(){
   // sabe desenhar tudo sem preenchimento nesse caso. Só invalida um índice que apontava pra um
   // pacote que deixou de existir (ex.: sessão anterior com outro conjunto de pacotes).
   if(MAPA_PACOTE_IDX!=null && !LOOKUPS.pacotes[MAPA_PACOTE_IDX]) MAPA_PACOTE_IDX = null;
+  // "Ver só um pacote" agora respeita o filtro de "☰↕ Pacotes" (ver orderedNamesForCurrentSort) — se o
+  // pacote em foco acabou de ser desmarcado no filtro, invalida o foco em vez de deixar preso num
+  // pacote que sumiu da lista (o <select> mostraria "Todos os pacotes" mas a tabela continuaria presa
+  // nele até um clique manual).
+  if(FOCO_PACOTE_IDX!=null && sel!=null && !sel.has(FOCO_PACOTE_IDX)){ FOCO_PACOTE_IDX = null; EXPANDED_IDX = null; saveUiPrefs(); }
   applyPresentationMode();
   const screen = document.getElementById('screen');
   screen.innerHTML = `
