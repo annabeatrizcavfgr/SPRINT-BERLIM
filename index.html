@@ -388,6 +388,19 @@ svg.chart{width:100%; height:auto; display:block; min-width:480px;}
 .screen-tab:hover, .mode-tab:hover{color:var(--text);}
 .screen-tab.active, .mode-tab.active{background:var(--surface); border-color:var(--border); color:var(--accent); box-shadow:var(--shadow);}
 .panel-table th, .panel-table td{white-space:nowrap;}
+/* cabeçalho da tabela do Painel Gerencial fixo ao rolar (2026-09-16, pedido dela — "quando estou
+   vendo os pacotes de baixo, não consigo saber do que se trata a informação"). position:sticky no
+   thead sozinho, colado no topo da PÁGINA, não funciona aqui: o wrapper "overflow-x:auto" (necessário
+   pra rolagem horizontal das colunas Semana N) força o navegador a computar overflow-y como "auto"
+   também (regra do CSS Overflow: um eixo != visible acopla o outro), tornando esse wrapper seu próprio
+   contêiner de rolagem — o sticky passa a colar no topo DELE, não no topo da página, e como ele cresce
+   junto com a página (sem altura própria) o efeito visual era nenhum (cabeçalho sumia rolando). Fix:
+   dar ao wrapper (.panel-table-wrap) uma altura máxima de verdade, virando uma caixa com rolagem
+   vertical própria — aí o cabeçalho realmente fica preso no topo dela enquanto ela rola. Só entra em
+   ação (scrollbar aparece) quando a lista de pacotes é grande o bastante pra passar de 70vh; com poucos
+   pacotes fica visualmente idêntico a antes. */
+.panel-table-wrap{overflow-x:auto; overflow-y:auto; max-height:70vh;}
+.panel-table thead th{position:sticky; top:0; background:var(--surface); z-index:1;}
 .week-cell{
   display:inline-flex; flex-direction:column; align-items:center; gap:2px; padding:5px 8px;
   border-radius:8px; min-width:56px; font-family:var(--font-mono);
@@ -513,7 +526,7 @@ select.inline{font:inherit; border:1px solid var(--border); border-radius:8px; p
   #topbar{ position:static !important; }
   .main-map-grid #mapaCard{ position:static !important; }
   .card, .stat-tile, .kpi-tile, .mapa-status-card{ box-shadow:none !important; }
-  [style*="overflow-x:auto"], [style*="overflow-x: auto"], .chart-wrap{ overflow:visible !important; }
+  [style*="overflow-x:auto"], [style*="overflow-x: auto"], .chart-wrap, .panel-table-wrap{ overflow:visible !important; max-height:none !important; }
 }
 </style>
 
@@ -3502,7 +3515,7 @@ function renderPainelGerencial(){
         <button class="btn btn-sm" id="btnColunasP">Colunas</button>
         <select class="inline" id="sortModeP">${Object.keys(SORT_LABELS).map(k=>`<option value="${k}" ${k===SORT_MODE?'selected':''}>${SORT_LABELS[k]}</option>`).join('')}</select>
       </div>
-      <div style="overflow-x:auto;">
+      <div class="panel-table-wrap">
       <table class="rank-table panel-table">
         <thead><tr>
           <th>Pacote</th>
