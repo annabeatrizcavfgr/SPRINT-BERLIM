@@ -2818,11 +2818,12 @@ function svgPareto(items){
     labels += `<text data-causa-nome="${nomeAttr}" x="0" y="0" transform="translate(${cx} ${h-padB+14}) rotate(-40)" text-anchor="end" class="chart-label" style="font-size:10.5px;">${truncateLabel(d.name,22)}</text>`;
   });
   const line = `<polyline points="${linePts.join(' ')}" fill="none" stroke="var(--critical)" stroke-width="2"/>`;
-  // tamanho FIXO em pixels (não width:100%) — sem isso, o SVG esticava pra preencher a largura toda
-  // do card (bem largo no Painel Gerencial) e, como o viewBox tem proporção quase quadrada com poucas
-  // categorias, a altura inflava junto (ficava enorme). width/height explícitos aqui vencem o
-  // width:100%;height:auto padrão de ".chart" — se não couber na tela, rola por dentro (chart-wrap).
-  return `<div class="chart-wrap"><svg viewBox="0 0 ${w} ${h}" class="chart" style="width:${w}px; height:${h}px; min-width:0;">${gridLeft}${ref80}${bars}${tags}${line}${dots}${gridRight}${labels}</svg></div>
+  // altura de CONTAINER fixa (mesmo esquema do mapa: #mapaWrap com altura fixa + svg width:100%
+  // height:100%) — width:100% sozinho esticava o gráfico pra preencher o card todo (ficava enorme);
+  // pixels fixos (tentativa anterior) ficavam pequenos demais num card largo. Com altura de container
+  // fixa e preserveAspectRatio="meet" (padrão), o SVG cresce até caber nessa altura sem nunca esticar
+  // além da proporção do desenho — nem grande demais, nem pequeno demais.
+  return `<div class="chart-wrap" style="height:260px;"><svg viewBox="0 0 ${w} ${h}" class="chart" style="width:100%; height:100%; min-width:0;" preserveAspectRatio="xMinYMid meet">${gridLeft}${ref80}${bars}${tags}${line}${dots}${gridRight}${labels}</svg></div>
   <div class="pill-row" style="margin-top:6px;">
     <span class="badge badge-accent">▮ ocorrências (eixo esq.)</span>
     <span class="badge badge-critical">— % acumulado (eixo dir.)</span>
