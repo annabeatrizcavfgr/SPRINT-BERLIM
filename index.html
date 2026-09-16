@@ -2786,9 +2786,9 @@ function svgPareto(items){
   if(!items.length) return '<p class="empty-note">Nenhuma causa registrada ainda para este recorte.</p>';
   const data = paretoData(items);
   const n = data.length;
-  const barW = 34, gap = 16, padL = 40, padR = 40, padT = 14, padB = 68;
+  const barW = 52, gap = 26, padL = 120, padR = 55, padT = 20, padB = 100;
   const plotW = n*(barW+gap);
-  const w = padL + plotW + padR, h = 200;
+  const w = padL + plotW + padR, h = 300;
   const plotH = h - padT - padB;
   const maxCount = Math.max(1, ...data.map(d=>d.count));
   let gridLeft='', gridRight='', bars='', tags='', labels='', dots='';
@@ -2815,15 +2815,18 @@ function svgPareto(items){
     tags += svgTag(cx, y, d.count, 'var(--accent)', '#fff');
     linePts.push(`${cx},${cy}`);
     dots += `<circle data-causa-nome="${nomeAttr}" cx="${cx}" cy="${cy}" r="4" fill="var(--critical)"/>`;
-    labels += `<text data-causa-nome="${nomeAttr}" x="0" y="0" transform="translate(${cx} ${h-padB+14}) rotate(-40)" text-anchor="end" class="chart-label" style="font-size:10.5px;">${truncateLabel(d.name,22)}</text>`;
+    labels += `<text data-causa-nome="${nomeAttr}" x="0" y="0" transform="translate(${cx} ${h-padB+16}) rotate(-40)" text-anchor="end" class="chart-label" style="font-size:11.5px;">${truncateLabel(d.name,18)}</text>`;
   });
   const line = `<polyline points="${linePts.join(' ')}" fill="none" stroke="var(--critical)" stroke-width="2"/>`;
-  // altura de CONTAINER fixa (mesmo esquema do mapa: #mapaWrap com altura fixa + svg width:100%
-  // height:100%) — width:100% sozinho esticava o gráfico pra preencher o card todo (ficava enorme);
-  // pixels fixos (tentativa anterior) ficavam pequenos demais num card largo. Com altura de container
-  // fixa e preserveAspectRatio="meet" (padrão), o SVG cresce até caber nessa altura sem nunca esticar
-  // além da proporção do desenho — nem grande demais, nem pequeno demais.
-  return `<div class="chart-wrap" style="height:260px;"><svg viewBox="0 0 ${w} ${h}" class="chart" style="width:100%; height:100%; min-width:0;" preserveAspectRatio="xMinYMid meet">${gridLeft}${ref80}${bars}${tags}${line}${dots}${gridRight}${labels}</svg></div>
+  // tamanho FIXO em pixels, calculado só a partir do nº de categorias (3ª tentativa — histórico pra
+  // não repetir: width:100% esticava demais num card largo; altura de container fixa + "meet" deixava
+  // pequeno com muito espaço em branco do lado; e QUALQUER opção baseada em % do container fazia o
+  // gráfico mudar de tamanho quando a lista de detalhe (clique numa barra) aparecia/sumia embaixo dele
+  // e alterava a largura disponível do card, o que ela reportou como confuso). Fixo em px nunca muda
+  // de tamanho por causa de outra coisa na tela — só cresce/encolhe com o nº de causas registradas.
+  // padL bem largo pra caber a rotação de -40° do rótulo mais à esquerda sem cortar (ver viewBox
+  // "overflow:hidden" implícito do SVG).
+  return `<div class="chart-wrap"><svg viewBox="0 0 ${w} ${h}" class="chart" style="width:${w}px; height:${h}px; min-width:0;">${gridLeft}${ref80}${bars}${tags}${line}${dots}${gridRight}${labels}</svg></div>
   <div class="pill-row" style="margin-top:6px;">
     <span class="badge badge-accent">▮ ocorrências (eixo esq.)</span>
     <span class="badge badge-critical">— % acumulado (eixo dir.)</span>
@@ -3039,13 +3042,11 @@ function ensureMapaMounted(){
 function effectiveMapaPacoteIdx(){ return EXPANDED_IDX!=null ? EXPANDED_IDX : MAPA_PACOTE_IDX; }
 function syncMapaWithExpanded(){
   const sel = document.getElementById('mapaPacoteSelect');
-  const note = document.getElementById('mapaSyncNote');
   if(sel){
     sel.disabled = EXPANDED_IDX!=null;
     const eff = effectiveMapaPacoteIdx();
     if(eff!=null) sel.value = String(eff);
   }
-  if(note) note.style.display = EXPANDED_IDX!=null ? '' : 'none';
   paintMapa();
 }
 function updateMapaCounts(){
@@ -3202,8 +3203,7 @@ function mapaCardHtml(ranking, layout){
     <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
       <label style="font-size:12px; color:var(--text-muted);">Colorir pelo status de:</label>
       <select class="inline" id="mapaPacoteSelect" ${EXPANDED_IDX!=null?'disabled':''}><option value="" ${eff==null?'selected':''}>— nenhum selecionado —</option>${ranking.map(p=>`<option value="${p.idx}" ${p.idx===eff?'selected':''}>${p.name}</option>`).join('')}</select>
-    </div>
-    <p id="mapaSyncNote" class="footer-note" style="padding:0; text-align:left; ${EXPANDED_IDX!=null?'':'display:none;'}">seguindo o pacote aberto na tabela</p>`;
+    </div>`;
   const viewportBlock = `
     <div id="mapaViewport">
       <div id="mapaWrap"></div>
