@@ -665,9 +665,11 @@ let SERVICOS_OPEN = false; // "+ Detalhe serviços" dentro do pacote expandido �
 // PAINEL_COL_DEFS; vazio = mostra todas. "Pacote" nunca é ocultável (é a identidade da linha).
 let PAINEL_HIDDEN_COLS = [];
 // filtro de responsável na tabela do Painel gerencial (2026-09-16, pedido dela) — recalcula Base/
-// Realizado/IDP/Total no mês/Ritmo/Término SÓ com as casas dessa pessoa, e some da lista os pacotes em
-// que ela não tem nenhuma casa. null = todos (comportamento normal, sem filtro). Não afeta mapa nem
-// causas (só a tabela) — ela confirmou esse escopo explicitamente.
+// Realizado/IDP/Total no mês/Ritmo/Término SÓ com as casas da(s) pessoa(s) selecionada(s), e some da
+// lista os pacotes em que nenhuma delas tem casa. null = todos (comportamento normal, sem filtro);
+// array de respIdx = 1+ pessoas escolhidas, união das casas de todas (ela pediu pra poder marcar
+// "1, 2 ou 3" ao mesmo tempo, não só uma por vez). Não afeta mapa nem causas (só a tabela) — ela
+// confirmou esse escopo explicitamente.
 let PAINEL_RESP_FILTRO = null;
 let EXPANDED_QUADRA = null; // quadra com o drill-down casa-a-casa aberto em "Atrasos por quadra" (só uma por vez, não persiste)
 // "foco" — modo reunião: mostra só UM pacote na tabela (todos os outros somem), já expandido, pra ver
@@ -1420,7 +1422,9 @@ async function initDb(){
       if(d.selectedMesId!==undefined) SELECTED_MES_ID = d.selectedMesId;
       if(d.customOrder!=null) CUSTOM_ORDER = d.customOrder;
       if(d.painelHiddenCols!=null) PAINEL_HIDDEN_COLS = d.painelHiddenCols;
-      if(d.painelRespFiltro!==undefined) PAINEL_RESP_FILTRO = d.painelRespFiltro;
+      // compat: versão anterior (2026-09-16, v76) guardava um único int; converte pra array de 1
+      // item se encontrar um doc antigo salvo assim, pra não quebrar o .includes() no resto do código.
+      if(d.painelRespFiltro!==undefined) PAINEL_RESP_FILTRO = typeof d.painelRespFiltro==='number' ? [d.painelRespFiltro] : d.painelRespFiltro;
       if(d.focoPacoteIdx!==undefined) FOCO_PACOTE_IDX = d.focoPacoteIdx;
       // "Ver só um pacote (reunião)" já vem carregado do último estado salvo — sem isso o mapa não
       // sabia que devia seguir esse pacote (só sincronizava quando alguém MUDAVA o seletor de novo,
@@ -2010,14 +2014,16 @@ function showImportError(sampleRows){
 =================================================================== */
 function rowsForPacote(pacoteIdx){ return ROWS.filter(r=>r.pacoteIdx===pacoteIdx); }
 
-// respFiltro (opcional) — restringe às casas dessa pessoa (r.respIdx, o responsável da planilha
-// SEMANAL). Usado pelo filtro de responsável do Painel gerencial (2026-09-16); null/undefined = sem
-// filtro, comportamento de sempre. Base e Realizado são sempre fatos da planilha semanal (nunca
-// sobrescritos pela planilha de metas), então um único campo (respIdx) resolve os dois sem ambiguidade
-// — diferente de mesMetricsForPacote/weeklySeriesForWeeks, que precisam separar respIdx (realizado) de
-// metaRespIdx (previsto/meta) porque essas SIM vêm de fontes diferentes.
+// respFiltro (opcional) — array de respIdx (união de 1+ pessoas), restringe às casas dessa(s)
+// pessoa(s) (r.respIdx, o responsável da planilha SEMANAL). Usado pelo filtro de responsável do
+// Painel gerencial (2026-09-16, virou multi-seleção depois que ela pediu pra escolher 1, 2 ou 3 de
+// uma vez); null/undefined = sem filtro, comportamento de sempre. Base e Realizado são sempre fatos
+// da planilha semanal (nunca sobrescritos pela planilha de metas), então um único campo (respIdx)
+// resolve os dois sem ambiguidade — diferente de mesMetricsForPacote/weeklySeriesForWeeks, que
+// precisam separar respIdx (realizado) de metaRespIdx (previsto/meta) porque essas SIM vêm de fontes
+// diferentes.
 function blocoA(pacoteIdx, respFiltro){
-  const rs = rowsForPacote(pacoteIdx).filter(r=> respFiltro==null || r.respIdx===respFiltro);
+  const rs = rowsForPacote(pacoteIdx).filter(r=> respFiltro==null || respFiltro.includes(r.respIdx));
   const N = rs.length;
   const casasBase = rs.filter(r=>r.basePct>=100).length;
   const casasPrevisto = rs.filter(r=>r.previstoPct>=100).length;
@@ -2112,8 +2118,8 @@ function weeklySeriesForWeeks(rs, weekOrds, respFiltro){
   rs.forEach(r=>{
     const metaResp = r.metaRespIdx!=null ? r.metaRespIdx : r.respIdx;
     const metaFim = r.metaVigFim!=null ? r.metaVigFim : r.vigFim;
-    if(metaFim!=null && metaFim>=0 && (respFiltro==null || metaResp===respFiltro)) bump(weekOfOrd(metaFim), 'meta');
-    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && (respFiltro==null || r.respIdx===respFiltro)) bump(weekOfOrd(r.vigFim), 'realizado');
+    if(metaFim!=null && metaFim>=0 && (respFiltro==null || respFiltro.includes(metaResp))) bump(weekOfOrd(metaFim), 'meta');
+    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && (respFiltro==null || respFiltro.includes(r.respIdx))) bump(weekOfOrd(r.vigFim), 'realizado');
   });
   return weekOrds.map(w=>({ ord:w, label: fmtDateShort(w), meta:(buckets.get(w)||{meta:0}).meta, realizado:(buckets.get(w)||{realizado:0}).realizado }));
 }
@@ -2157,8 +2163,8 @@ function mesMetricsForPacote(pacoteIdx, weekOrds, respFiltro){
   rs.forEach(r=>{
     const metaResp = r.metaRespIdx!=null ? r.metaRespIdx : r.respIdx;
     const fim = r.metaVigFim!=null ? r.metaVigFim : r.vigFim;
-    if(fim!=null && fim>=0 && weekSet.has(weekOfOrd(fim)) && (respFiltro==null || metaResp===respFiltro)) meta++;
-    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && weekSet.has(weekOfOrd(r.vigFim)) && (respFiltro==null || r.respIdx===respFiltro)) realizado++;
+    if(fim!=null && fim>=0 && weekSet.has(weekOfOrd(fim)) && (respFiltro==null || respFiltro.includes(metaResp))) meta++;
+    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && weekSet.has(weekOfOrd(r.vigFim)) && (respFiltro==null || respFiltro.includes(r.respIdx))) realizado++;
   });
   return { meta, realizado, pct: meta ? realizado/meta : null };
 }
@@ -2182,7 +2188,7 @@ function periodCompare(pacoteIdx){
 // data de conclusão do pacote segundo a linha de base — a mais tardia entre as casas
 function baselineFimForPacote(pacoteIdx, respFiltro){
   const valid = rowsForPacote(pacoteIdx)
-    .filter(r=> respFiltro==null || r.respIdx===respFiltro)
+    .filter(r=> respFiltro==null || respFiltro.includes(r.respIdx))
     .map(r=>r.baseFim).filter(v=>v!=null && v>=0);
   return valid.length ? Math.max(...valid) : null;
 }
@@ -2201,7 +2207,7 @@ function trendFromSeries(series){
   return {dir:'flat', pct:delta};
 }
 function projection(pacoteIdx, respFiltro){
-  const rs = rowsForPacote(pacoteIdx).filter(r=> respFiltro==null || r.respIdx===respFiltro);
+  const rs = rowsForPacote(pacoteIdx).filter(r=> respFiltro==null || respFiltro.includes(r.respIdx));
   const series = weeklySeries(rs, 8); // ritmo médio das últimas 8 semanas, conforme pedido
   const vel = series.length ? series.reduce((s,w)=>s+w.realizado,0)/series.length : 0;
   const trend = trendFromSeries(series);
@@ -3533,6 +3539,21 @@ function renderPainelGerencial(){
   // filtro de responsável (2026-09-16) — some da lista qualquer pacote em que essa pessoa não tem
   // nenhuma casa (blocoA com respFiltro dando N=0); só afeta esta tabela, não o mapa nem as causas.
   const visibleResp = PAINEL_RESP_FILTRO==null ? visible : visible.filter(p=> blocoA(p.idx, PAINEL_RESP_FILTRO).N>0);
+  // opções do filtro de responsável (2026-09-16, pedido dela — "tem uns nomes aleatórios, deixa o
+  // filtro só com os nomes que temos nos meus dados", depois "quero que fique Iury Teixeira /
+  // Marcello Coelho / Emilly Brito, de forma que possa selecionar 1, 2 ou 3"): duas restrições. (1)
+  // LOOKUPS.responsaveis é a tabela fixa de nomes já vistos alguma vez em qualquer planilha (pode ter
+  // gente que não está mais em nenhuma casa hoje) — listamos só os respIdx que aparecem em ROWS de
+  // fato agora (como respIdx/realizado OU metaRespIdx/previsto). (2) LOOKUPS.responsaveis também tem
+  // entradas que não são uma pessoa de verdade pra esse filtro — "-", "Sem responsável" e buckets de
+  // nome combinado tipo "Iury Teixeira, Marcello Coelho" (responsabilidade conjunta, ver
+  // investigação de Acabamentos Finais) — `isNomeIndividualResp` deixa passar só nome de pessoa única.
+  function isNomeIndividualResp(nome){
+    return !!nome && nome!=='-' && nome!=='Sem responsável' && !nome.includes(',');
+  }
+  const respIdxsPresentes = [...new Set(ROWS.flatMap(r=>[r.respIdx, r.metaRespIdx!=null?r.metaRespIdx:r.respIdx]).filter(i=>i!=null))]
+    .filter(i=> isNomeIndividualResp(LOOKUPS.responsaveis[i]))
+    .sort((a,b)=> (LOOKUPS.responsaveis[a]||'').localeCompare(LOOKUPS.responsaveis[b]||'', 'pt-BR'));
   const mes = selectedMes();
   // NÃO força mais um default aqui (2026-09-16) — MAPA_PACOTE_IDX é COMPARTILHADO com a tela Sprint
   // (mesma variável, mesmo meta/uiPrefs). Forçar "Entrega Cliente" sempre que o Painel Gerencial
@@ -3582,10 +3603,14 @@ function renderPainelGerencial(){
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:10px 0 12px 0;">
         <span class="footer-note" style="padding:0;">(${visibleResp.length} de ${ranking.length})</span>
         <span style="flex:1"></span>
-        <select class="inline" id="painelRespFiltroP" title="Recalcula Base/Realizado/IDP/Total no mês/Ritmo/Término considerando só as casas dessa pessoa, e some os pacotes em que ela não tem nenhuma">
-          <option value="">Todos os responsáveis</option>
-          ${LOOKUPS.responsaveis.map((n,i)=>`<option value="${i}" ${PAINEL_RESP_FILTRO===i?'selected':''}>${n}</option>`).join('')}
-        </select>
+        <div class="pill-row" id="painelRespFiltroP" style="align-items:center;" title="Recalcula Base/Realizado/IDP/Total no mês/Ritmo/Término considerando só as casas da(s) pessoa(s) marcada(s), e some os pacotes em que nenhuma delas tem casa">
+          <span class="footer-note" style="padding:0;">Responsável:</span>
+          ${respIdxsPresentes.map(i=>`
+            <label style="display:inline-flex; align-items:center; gap:4px; font-size:12.5px; cursor:pointer; padding:4px 9px; border:1px solid var(--border); border-radius:999px; background:var(--surface);">
+              <input type="checkbox" data-respcheck="${i}" ${PAINEL_RESP_FILTRO && PAINEL_RESP_FILTRO.includes(i) ? 'checked' : ''}>
+              ${LOOKUPS.responsaveis[i]}
+            </label>`).join('')}
+        </div>
         <button class="btn btn-sm" id="btnMesesP">📅 Gerenciar meses</button>
         <button class="btn btn-sm" id="btnPacotesP" title="Escolher quais pacotes aparecem e em que ordem">☰↕ Pacotes</button>
         <button class="btn btn-sm" id="btnColunasP">Colunas</button>
@@ -3666,9 +3691,16 @@ function renderPainelGerencial(){
   document.getElementById('btnPacotesP').onclick = openPacotesModal;
   document.getElementById('btnMesesP').onclick = openMesesModal;
   document.getElementById('btnColunasP').onclick = openColunasModal;
-  document.getElementById('painelRespFiltroP').addEventListener('change', e=>{
-    PAINEL_RESP_FILTRO = e.target.value===''?null:parseInt(e.target.value,10); saveUiPrefs();
-    renderPainelGerencial();
+  document.querySelectorAll('#painelRespFiltroP [data-respcheck]').forEach(cb=>{
+    cb.onchange = ()=>{
+      const idx = parseInt(cb.dataset.respcheck,10);
+      let sel = PAINEL_RESP_FILTRO==null ? [] : PAINEL_RESP_FILTRO.slice();
+      if(cb.checked){ if(!sel.includes(idx)) sel.push(idx); }
+      else { sel = sel.filter(x=>x!==idx); }
+      PAINEL_RESP_FILTRO = sel.length ? sel : null;
+      saveUiPrefs();
+      renderPainelGerencial();
+    };
   });
   document.getElementById('mesSelectP').addEventListener('change', e=>{
     SELECTED_MES_ID = e.target.value || null; saveUiPrefs();
