@@ -3238,7 +3238,7 @@ function mapaStatusSideHtml(entries){
   </div>`;
 }
 // layout: 'strip' (padrão, cards acima — tela Sprint) ou 'side' (coluna ao lado — Painel gerencial)
-function mapaCardHtml(ranking, layout){
+function mapaCardHtml(ranking, layout, alwaysOpen){
   const eff = effectiveMapaPacoteIdx();
   const cnt = mapaCounts(eff);
   const entries = mapaStatusEntries(cnt);
@@ -3260,6 +3260,20 @@ function mapaCardHtml(ranking, layout){
   const body = layout==='side'
     ? `<div class="mapa-body"><div class="mapa-map-col">${viewportBlock}</div>${mapaStatusSideHtml(entries)}</div>`
     : `${mapaStatusStripHtml(entries)}${viewportBlock}`;
+  // Sprint (alwaysOpen) NÃO é colapsável — pedido dela (2026-09-16): "eu tinha pedido pro mapa da tela
+  // gerencial ser expansível, como tudo no painel gerencial, mas na tela de reunião não. lá precisa
+  // sempre estar aberto". A colapsabilidade adicionada antes (mesma sessão) valia pras duas telas por
+  // engano, já que essa função é compartilhada — Painel Gerencial continua `<details>` colapsável.
+  if(alwaysOpen){
+    return `
+    <div class="card" id="mapaCard">
+      <h3 class="section-title">🗺️ Mapa da obra</h3>
+      <div style="margin-top:10px;">
+        ${selectorBlock}
+        ${body}
+      </div>
+    </div>`;
+  }
   return `
   <details class="card" id="mapaCard" ${MAPA_CARD_OPEN?'open':''}>
     <summary>🗺️ Mapa da obra <span class="chev">▸</span></summary>
@@ -3380,7 +3394,7 @@ function renderGeral(){
         <div id="pkgTableWrap"></div>
       </div>
 
-      ${mapaCardHtml(ranking)}
+      ${mapaCardHtml(ranking, null, true)}
     </div>
 
     <div class="footer-note">${ROWS.length.toLocaleString('pt-BR')} linhas casa × pacote · ${SNAPSHOTS_META.length} semana(s) registrada(s) · Previsto vigente: ${META_DATE_REF ? '🎯 metas de '+mesLabelFromYearMonth(META_DATE_REF) : (EXAMPLE_MODE ? 'exemplo' : '⚠ nenhuma planilha de metas enviada ainda — usando o Previsto da própria planilha semanal')}</div>
