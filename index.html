@@ -2108,7 +2108,7 @@ function toneForWeek(w){
   if(!w.meta) return 'neutral';
   return w.realizado>=w.meta ? 'good' : 'critical';
 }
-// "DESVIO ACM. ATÉ A SEM. VIGENTE" (2026-09-16, pedido dela): soma meta/realizado só das semanas que JÁ VENCERAM
+// "DESVIO SEM. VIG." (2026-09-16, pedido dela): soma meta/realizado só das semanas que JÁ VENCERAM
 // (ord <= semana vigente) — diferente da "Meta do mês", que soma o mês inteiro incluindo semanas
 // futuras que ainda não tiveram chance de acontecer. Recebe qualquer série já calculada no formato
 // {ord,meta,realizado} — mesmo shape de weeklySeriesForWeeks() e do `.weeks` de respWeeklyBreakdown(),
@@ -2892,7 +2892,7 @@ function renderCoordCards(data){
       <th>Coordenador</th>
       ${Array.from({length:nWeeks}, (_,i)=>`<th>Sem ${i+1}</th>`).join('')}
       <th>Total mês</th>
-      <th title="Casas que esse coordenador já deveria ter entregue até a semana vigente (soma da meta das semanas já vencidas) comparado ao que foi realmente entregue. Negativo = devendo, positivo = à frente.">DESVIO ACM. ATÉ A SEM. VIGENTE</th>
+      <th title="Casas que esse coordenador já deveria ter entregue até a semana vigente (soma da meta das semanas já vencidas) comparado ao que foi realmente entregue. Negativo = devendo, positivo = à frente.">DESVIO SEM. VIG.</th>
     </tr></thead>
     <tbody>
       ${data.map(d=>{
@@ -3441,7 +3441,7 @@ function renderGeral(){
           <th style="min-width:120px;" title="Realizado acumulado sobre a Base acumulada (o que a Linha de base diz que já deveria estar pronto nesta data). Abaixo de 85% vermelho, de 85% a 100% amarelo, 100% ou mais verde.">Realizado / Base</th>
           <th title="Índice de Desempenho de Prazo = Realizado acumulado ÷ Base acumulada. Abaixo de 1 indica atraso em relação à linha de base.">IDP</th>
           <th style="min-width:120px;" title="Casas concluídas neste pacote dentro das semanas do mês selecionado, comparado à meta do mês.">${mesColLabel}</th>
-          <th style="min-width:120px;" title="Casas que já deveriam ter sido entregues até a semana vigente (soma da meta das semanas já vencidas do mês) comparado ao que foi realmente entregue. Negativo = devendo, positivo = à frente.">DESVIO ACM. ATÉ A SEM. VIGENTE</th>
+          <th style="min-width:120px;" title="Casas que já deveriam ter sido entregues até a semana vigente (soma da meta das semanas já vencidas do mês) comparado ao que foi realmente entregue. Negativo = devendo, positivo = à frente.">DESVIO SEM. VIG.</th>
         </tr></thead>
         <tbody>
         ${rows.map(p=>{
@@ -3459,7 +3459,7 @@ function renderGeral(){
             <td data-label="Realizado / Base">${baseRealizadoBarHtml(p)}</td>
             <td class="num-cell mono" data-label="IDP (realizado/base)" style="color:${tierColor(p.aderenciaContrato)}; font-weight:700;">${idpFmt(p.aderenciaContrato)}</td>
             <td data-label="${mesColLabel}">${metaMesBarHtml(mm)}</td>
-            <td class="num-cell mono" data-label="DESVIO ACM. ATÉ A SEM. VIGENTE">${desvioAteAgoraCell(ateAgora)}</td>
+            <td class="num-cell mono" data-label="DESVIO SEM. VIG.">${desvioAteAgoraCell(ateAgora)}</td>
           </tr>
           ${EXPANDED_IDX===p.idx ? `<tr class="pkg-panel-row"><td colspan="6">${renderExpandedPanel(p)}</td></tr>` : ''}`;}).join('')}
         </tbody>
