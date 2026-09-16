@@ -3536,24 +3536,51 @@ function renderPainelGerencial(){
   const ranking = packageRanking();
   const sel = selectedIdxSet();
   const visible = ranking.filter(p=> sel==null || sel.has(p.idx)).slice().sort(SORTERS[SORT_MODE]);
-  // filtro de responsável (2026-09-16) — some da lista qualquer pacote em que essa pessoa não tem
-  // nenhuma casa (blocoA com respFiltro dando N=0); só afeta esta tabela, não o mapa nem as causas.
-  const visibleResp = PAINEL_RESP_FILTRO==null ? visible : visible.filter(p=> blocoA(p.idx, PAINEL_RESP_FILTRO).N>0);
   // opções do filtro de responsável (2026-09-16, pedido dela — "tem uns nomes aleatórios, deixa o
   // filtro só com os nomes que temos nos meus dados", depois "quero que fique Iury Teixeira /
-  // Marcello Coelho / Emilly Brito, de forma que possa selecionar 1, 2 ou 3"): duas restrições. (1)
-  // LOOKUPS.responsaveis é a tabela fixa de nomes já vistos alguma vez em qualquer planilha (pode ter
-  // gente que não está mais em nenhuma casa hoje) — listamos só os respIdx que aparecem em ROWS de
-  // fato agora (como respIdx/realizado OU metaRespIdx/previsto). (2) LOOKUPS.responsaveis também tem
-  // entradas que não são uma pessoa de verdade pra esse filtro — "-", "Sem responsável" e buckets de
-  // nome combinado tipo "Iury Teixeira, Marcello Coelho" (responsabilidade conjunta, ver
-  // investigação de Acabamentos Finais) — `isNomeIndividualResp` deixa passar só nome de pessoa única.
+  // Marcello Coelho / Emilly Brito, de forma que possa selecionar 1, 2 ou 3", depois "a Emilly não
+  // tem nada só dela, somente em conjunto com os coordenadores [...] quando clicar só na Emilly tem
+  // que aparecer os pacotes que aparecem o nome dela [...] pra Marcello e Iury, podemos seguir o
+  // mesmo princípio [...] temos que manter os combinados"). Ou seja: (1) LOOKUPS.responsaveis
+  // também tem entradas que não são uma pessoa de verdade pra esse filtro — "-", "Sem responsável" e
+  // buckets de nome combinado tipo "Iury Teixeira, Marcello Coelho" (responsabilidade conjunta, ver
+  // investigação de Acabamentos Finais) — `isNomeIndividualResp` deixa passar só nome de pessoa
+  // única, e são SÓ essas que aparecem como opção clicável (mantemos os buckets combinados intactos
+  // na LOOKUPS, só não oferecemos eles como opção própria). (2) marcar uma pessoa precisa casar
+  // TAMBÉM com qualquer bucket combinado em que o nome dela apareça (ex: "Emilly Brito, Marcello
+  // Coelho"), não só um respIdx exato dela sozinha — que no caso da Emilly nem existe: ela só
+  // aparece dentro de buckets combinados, nunca como respIdx isolado. `respIdxsParaPessoa` expande 1
+  // pessoa pro conjunto de TODOS os respIdx (dela sozinha + qualquer combinado que a cite); compara
+  // nome a nome (split por vírgula) pra não confundir "Iury Teixeira" com um "Iuryana Teixeira"
+  // hipotético por substring.
   function isNomeIndividualResp(nome){
     return !!nome && nome!=='-' && nome!=='Sem responsável' && !nome.includes(',');
   }
-  const respIdxsPresentes = [...new Set(ROWS.flatMap(r=>[r.respIdx, r.metaRespIdx!=null?r.metaRespIdx:r.respIdx]).filter(i=>i!=null))]
-    .filter(i=> isNomeIndividualResp(LOOKUPS.responsaveis[i]))
+  function respIdxsParaPessoa(personIdx){
+    const nome = LOOKUPS.responsaveis[personIdx];
+    if(!nome) return [personIdx];
+    return LOOKUPS.responsaveis
+      .map((n,i)=> (n && n.split(',').map(s=>s.trim()).includes(nome)) ? i : null)
+      .filter(i=>i!=null);
+  }
+  // um respIdx "usado" é qualquer um que apareça em ROWS de fato agora, como respIdx/realizado OU
+  // metaRespIdx/previsto — inclui buckets combinados usados diretamente.
+  const respIdxsUsados = new Set(ROWS.flatMap(r=>[r.respIdx, r.metaRespIdx!=null?r.metaRespIdx:r.respIdx]).filter(i=>i!=null));
+  // opção aparece se a PESSOA (sozinha OU em qualquer combinado que a cite) tiver pelo menos um
+  // respIdx usado — é assim que "Emilly Brito" aparece como opção mesmo sem nenhuma casa com respIdx
+  // isolado dela: o bucket combinado que a cita está em uso, então ela conta como presente.
+  const respIdxsPresentes = LOOKUPS.responsaveis
+    .map((n,i)=>i)
+    .filter(i=> isNomeIndividualResp(LOOKUPS.responsaveis[i]) && respIdxsParaPessoa(i).some(j=>respIdxsUsados.has(j)))
     .sort((a,b)=> (LOOKUPS.responsaveis[a]||'').localeCompare(LOOKUPS.responsaveis[b]||'', 'pt-BR'));
+  // expande a seleção (pessoas) pro conjunto real de respIdx a comparar nas 5 funções de agregação —
+  // são elas que continuam recebendo/testando um array de respIdx "achatado", sem saber de pessoa vs.
+  // bucket combinado.
+  const respFiltroExpandido = PAINEL_RESP_FILTRO==null ? null : [...new Set(PAINEL_RESP_FILTRO.flatMap(respIdxsParaPessoa))];
+  // filtro de responsável (2026-09-16) — some da lista qualquer pacote em que essa pessoa não tem
+  // nenhuma casa (blocoA com respFiltro dando N=0, já expandido pra incluir buckets combinados); só
+  // afeta esta tabela, não o mapa nem as causas.
+  const visibleResp = respFiltroExpandido==null ? visible : visible.filter(p=> blocoA(p.idx, respFiltroExpandido).N>0);
   const mes = selectedMes();
   // NÃO força mais um default aqui (2026-09-16) — MAPA_PACOTE_IDX é COMPARTILHADO com a tela Sprint
   // (mesma variável, mesmo meta/uiPrefs). Forçar "Entrega Cliente" sempre que o Painel Gerencial
@@ -3627,13 +3654,14 @@ function renderPainelGerencial(){
         ${visibleResp.length ? visibleResp.map(p=>{
           // useMeta=false — colunas "Semana N" precisam bater com o mapa (dado real), não com o
           // planejamento da Meta (ver respWeeklyBreakdown pra explicação completa do porquê).
-          const weeks = weeklySeriesForWeeks(rowsForPacote(p.idx), weekOrds, PAINEL_RESP_FILTRO);
-          const mm = mesMetricsForPacote(p.idx, weekOrds, PAINEL_RESP_FILTRO);
-          const proj = projection(p.idx, PAINEL_RESP_FILTRO);
+          const weeks = weeklySeriesForWeeks(rowsForPacote(p.idx), weekOrds, respFiltroExpandido);
+          const mm = mesMetricsForPacote(p.idx, weekOrds, respFiltroExpandido);
+          const proj = projection(p.idx, respFiltroExpandido);
           // com filtro de responsável ativo, Base/Realizado/IDP vêm recalculados só das casas dessa
-          // pessoa (blocoA com respFiltro) em vez dos totais do pacote inteiro (p.casasBase/etc, de
-          // packageRanking() — sempre sem filtro).
-          const pResp = PAINEL_RESP_FILTRO==null ? p : {...p, ...blocoA(p.idx, PAINEL_RESP_FILTRO)};
+          // pessoa (blocoA com respFiltro, já expandido pra incluir buckets combinados que a citam)
+          // em vez dos totais do pacote inteiro (p.casasBase/etc, de packageRanking() — sempre sem
+          // filtro).
+          const pResp = respFiltroExpandido==null ? p : {...p, ...blocoA(p.idx, respFiltroExpandido)};
           // sem badge de status aqui (Atrasado/No prazo/etc) — a cor da barra de avanço (abaixo) e do
           // IDP já cobrem isso; retirado a pedido dela (2026-09-09), mesma lógica do que foi feito na Sprint.
           const cells = {
