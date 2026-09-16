@@ -2945,12 +2945,6 @@ document.getElementById('weekPicker').addEventListener('change', async e=>{
 /* ===================================================================
    MAPA DA OBRA — planta em SVG (Synoptic Designer), colorida por pacote
 =================================================================== */
-function defaultMapaPacoteIdx(){
-  let idx = LOOKUPS.pacotes.findIndex(n=> normalizeHeader(n).includes('entrega cliente'));
-  if(idx!==-1) return idx;
-  const ranking = packageRanking();
-  return ranking.length ? ranking[0].idx : null;
-}
 function applyMapaTransform(){
   const svgEl = document.querySelector('#mapaWrap svg');
   if(!svgEl) return;
@@ -3469,7 +3463,14 @@ function renderPainelGerencial(){
   const sel = selectedIdxSet();
   const visible = ranking.filter(p=> sel==null || sel.has(p.idx)).slice().sort(SORTERS[SORT_MODE]);
   const mes = selectedMes();
-  if(MAPA_PACOTE_IDX==null || !LOOKUPS.pacotes[MAPA_PACOTE_IDX]) MAPA_PACOTE_IDX = defaultMapaPacoteIdx();
+  // NÃO força mais um default aqui (2026-09-16) — MAPA_PACOTE_IDX é COMPARTILHADO com a tela Sprint
+  // (mesma variável, mesmo meta/uiPrefs). Forçar "Entrega Cliente" sempre que o Painel Gerencial
+  // carregava "vazava" pra Sprint: ela visitava o Painel, voltava pra Sprint, e o mapa aparecia
+  // mostrando Entrega Cliente em vez de ficar em branco — ela reportou "abro o pacote 'Instalações de
+  // Prumadas' na tabela mas o mapa mostra Entrega Cliente". Só invalida um índice apontando pra um
+  // pacote que deixou de existir, mesmo padrão já usado na Sprint desde 2026-09-10. Sem nada escolhido,
+  // o mapa aqui também fica em branco (o <select> já tem "— nenhum selecionado —" pra isso).
+  if(MAPA_PACOTE_IDX!=null && !LOOKUPS.pacotes[MAPA_PACOTE_IDX]) MAPA_PACOTE_IDX = null;
   const screen = document.getElementById('screen');
 
   if(!mes){
