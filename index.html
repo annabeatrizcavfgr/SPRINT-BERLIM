@@ -1167,6 +1167,8 @@ function traduzErroAuth(error){
   if(/User already registered/i.test(m)) return 'Já existe uma conta com esse e-mail - tente Entrar.';
   if(/Password should be at least/i.test(m)) return 'A senha precisa ter pelo menos 6 caracteres.';
   if(/Unable to validate email address/i.test(m)) return 'E-mail inválido.';
+  if(/security purposes.*after/i.test(m)) return 'Você já pediu isso há pouco - espere um minuto e tente de novo.';
+  if(/Auth session missing/i.test(m)) return 'Esse link de redefinição já expirou ou já foi usado - peça um novo em "Esqueci minha senha".';
   return m;
 }
 async function fetchMyRole(){
@@ -1200,11 +1202,77 @@ function loginScreenHtml(msg){
     <div class="form-field"><label>E-mail</label><input type="email" id="loginEmail" autocomplete="email"></div>
     <div class="form-field"><label>Senha</label><input type="password" id="loginSenha" autocomplete="current-password"></div>
     <div class="form-field"><label>Confirmar senha (só pra criar conta)</label><input type="password" id="loginSenhaConfirma" autocomplete="new-password"></div>
+    <p style="text-align:right; margin:-6px 0 0 0;"><a href="#" id="linkEsqueciSenha" style="font-size:12.5px;">Esqueci minha senha</a></p>
     <div class="modal-actions">
       <button class="btn" id="btnCriarConta">Criar conta</button>
       <button class="btn btn-primary" id="btnEntrar">Entrar</button>
     </div>
   `;
+}
+// "esqueci minha senha" (2026-09-17, pedido dela). resetPasswordForEmail nunca revela se aquele
+// e-mail tem conta ou não (segurança do próprio Supabase) - por isso a tela de confirmação também
+// fala "se tiver uma conta", sem confirmar nada. redirectTo manda a pessoa de volta pra essa mesma
+// URL, mas com "#...&type=recovery" no fragmento - initAuth() detecta isso e abre
+// showResetPasswordScreen() direto, sem passar pelo login normal (ver initAuth).
+function forgotPasswordScreenHtml(msg){
+  return `
+    <h3>Recuperar senha</h3>
+    <p>Digite seu e-mail - se tiver uma conta, mandamos um link pra você escolher uma senha nova.</p>
+    ${msg ? `<p style="color:var(--critical); font-weight:600;">${msg}</p>` : ''}
+    <div class="form-field"><label>E-mail</label><input type="email" id="forgotEmail" autocomplete="email"></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnVoltarLogin">Voltar</button>
+      <button class="btn btn-primary" id="btnEnviarRecuperacao">Enviar link</button>
+    </div>
+  `;
+}
+function forgotPasswordEnviadoHtml(email){
+  return `
+    <h3>Verifique seu e-mail</h3>
+    <p>Se <strong>${email}</strong> tiver uma conta, um link pra redefinir a senha foi enviado pra
+    lá. Abra o e-mail e clique no link pra escolher uma senha nova.</p>
+    <div class="modal-actions"><button class="btn btn-primary" id="btnVoltarLogin2">Voltar para o login</button></div>
+  `;
+}
+function showForgotPasswordScreen(msg){
+  openModal(forgotPasswordScreenHtml(msg));
+  document.getElementById('btnVoltarLogin').onclick = ()=> showLoginScreen();
+  document.getElementById('btnEnviarRecuperacao').onclick = async ()=>{
+    const email = document.getElementById('forgotEmail').value.trim();
+    if(!email){ showForgotPasswordScreen('Preencha o e-mail.'); return; }
+    const { error } = await AUTH.auth.resetPasswordForEmail(email, { redirectTo: location.origin+location.pathname });
+    if(error){ showForgotPasswordScreen(traduzErroAuth(error)); return; }
+    openModal(forgotPasswordEnviadoHtml(email));
+    document.getElementById('btnVoltarLogin2').onclick = ()=> showLoginScreen();
+  };
+}
+function resetPasswordScreenHtml(msg){
+  return `
+    <h3>Escolha uma nova senha</h3>
+    <p>Definindo uma nova senha para <strong>${CURRENT_USER ? CURRENT_USER.email : 'sua conta'}</strong>.</p>
+    ${msg ? `<p style="color:var(--critical); font-weight:600;">${msg}</p>` : ''}
+    <div class="form-field"><label>Nova senha</label><input type="password" id="novaSenha" autocomplete="new-password"></div>
+    <div class="form-field"><label>Confirmar nova senha</label><input type="password" id="novaSenhaConfirma" autocomplete="new-password"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="btnSalvarSenha">Salvar nova senha</button>
+    </div>
+  `;
+}
+function showResetPasswordScreen(msg){
+  openModal(resetPasswordScreenHtml(msg));
+  document.getElementById('btnSalvarSenha').onclick = async ()=>{
+    const senha = document.getElementById('novaSenha').value;
+    const confirma = document.getElementById('novaSenhaConfirma').value;
+    if(!senha || senha.length<6){ showResetPasswordScreen('A senha precisa ter pelo menos 6 caracteres.'); return; }
+    if(senha !== confirma){ showResetPasswordScreen('As senhas não são iguais.'); return; }
+    const { error } = await AUTH.auth.updateUser({ password: senha });
+    if(error){ showResetPasswordScreen(traduzErroAuth(error)); return; }
+    // tira o "#...type=recovery" da URL, senão um refresh de página cairia de novo nessa tela
+    history.replaceState(null, '', location.pathname+location.search);
+    closeModal();
+    toast('Senha atualizada! Você já está logado(a).');
+    await afterLogin();
+  };
 }
 function waitingApprovalHtml(){
   return `
@@ -1260,6 +1328,7 @@ function showLoginScreen(msg){
     closeModal();
     await afterLogin();
   };
+  document.getElementById('linkEsqueciSenha').onclick = (e)=>{ e.preventDefault(); showForgotPasswordScreen(); };
 }
 // checa (e mostra) o status de quem logou: se ainda "pending", mostra a tela de espera e devolve
 // false (quem chamou NAO deve carregar o resto do app); se "approved", atualiza os botoes/topbar e
@@ -1294,6 +1363,16 @@ async function initAuth(){
   }catch(e){ return true; }
   if(typeof supabase==='undefined' || !supabase.createClient) return true;
   AUTH = supabase.createClient(cfg.url, cfg.anonKey);
+  // link de "esqueci minha senha" (2026-09-17): o Supabase manda a pessoa de volta pra essa mesma URL
+  // com "#access_token=...&type=recovery" no fragmento, JÁ autenticada numa sessão temporária - se
+  // checássemos só "tem sessão?" como no fluxo normal abaixo, ela cairia direto no app (bypassando a
+  // troca de senha). Por isso esse desvio TEM que vir antes do getSession() do fluxo normal.
+  if(location.hash.includes('type=recovery')){
+    const { data:{ session } } = await AUTH.auth.getSession();
+    CURRENT_USER = session ? session.user : null;
+    showResetPasswordScreen();
+    return false;
+  }
   const { data:{ session } } = await AUTH.auth.getSession();
   if(session){
     CURRENT_USER = session.user;
