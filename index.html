@@ -557,9 +557,7 @@ select.inline{font:inherit; border:1px solid var(--border); border-radius:8px; p
       <input type="file" id="fileInputMetas" accept=".xlsx" hidden>
       <button class="btn btn-sm" id="btnUploadServicos" title="Detalhe por serviço dentro do pacote — só pra pacotes específicos, ~1x por mês">🧱 Enviar serviços do pacote</button>
       <input type="file" id="fileInputServicos" accept=".xlsx" hidden>
-      <button class="btn btn-sm" id="btnUploadMapa" title="SVG do mapa da obra, com cada casa marcada (class=&quot;jb-casa&quot; data-key=&quot;quadra-casa&quot;)">🗺️ Enviar mapa</button>
-      <input type="file" id="fileInputMapa" accept=".svg" hidden>
-      <button class="btn btn-sm" id="btnGerenciarSemanas" title="Excluir semanas/metas enviadas por engano">🗑️ Gerenciar semanas</button>
+      <button class="btn btn-sm" id="btnGerenciarSemanas" title="Excluir planilhas enviadas por engano">🗑️ Gerenciar planilhas enviadas</button>
       <button class="btn btn-sm" id="btnExportar" title="Imprimir ou salvar a tela atual em PDF">🖨️ Exportar</button>
       <button class="btn btn-sm" id="btnUsuarios" title="Gerenciar quem pode entrar e editar" style="display:none;">👤 Usuários</button>
       <button class="btn btn-sm" id="btnTrocarObra" title="Trocar para outra obra, ou cadastrar uma obra nova" style="display:none;">🏗️ Trocar de obra</button>
@@ -1214,7 +1212,7 @@ async function fetchMyRole(){
 }
 function updateAuthUi(){
   const isPlan = MY_ROLE === 'planejador';
-  ['btnUpload','btnUploadMetas','btnUploadServicos','btnUploadMapa'].forEach(id=>{
+  ['btnUpload','btnUploadMetas','btnUploadServicos'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = isPlan ? '' : 'none';
   });
@@ -3662,6 +3660,20 @@ function mapaStatusSideHtml(entries){
     </div>
   </div>`;
 }
+// botão "Enviar mapa" (+ "Excluir" quando já tem um mapa próprio enviado) — mora ao lado do título
+// do card do mapa (2026-09-17, pedido dela: "coloca enviar mapa do lado do mapa da obra, pra dar
+// uma limpada na tela" — antes ficava solto no topbar, que já tinha 5+ botões). Só planejador vê
+// (checado aqui, na hora de montar o HTML, não via updateAuthUi — esse card é remontado do zero a
+// cada render(), então esconder/mostrar via style.display depois não teria efeito duradouro).
+function mapaUploadControlsHtml(){
+  if(MY_ROLE!=='planejador') return '';
+  return `
+    <span style="display:inline-flex; gap:6px; margin-left:auto;" onclick="event.preventDefault(); event.stopPropagation();">
+      <button type="button" class="btn btn-sm" id="btnUploadMapa" title="SVG do mapa da obra, com cada casa marcada (class=&quot;jb-casa&quot; data-key=&quot;quadra-casa&quot;)">🗺️ Enviar mapa</button>
+      ${MAPA_SVG_CUSTOM ? `<button type="button" class="btn btn-sm" id="btnDeleteMapa" title="Remove o mapa enviado">Excluir mapa</button>` : ''}
+      <input type="file" id="fileInputMapa" accept=".svg" hidden>
+    </span>`;
+}
 // layout: 'strip' (padrão, cards acima — tela Sprint) ou 'side' (coluna ao lado — Painel gerencial)
 function mapaCardHtml(ranking, layout, alwaysOpen){
   const eff = effectiveMapaPacoteIdx();
@@ -3692,7 +3704,10 @@ function mapaCardHtml(ranking, layout, alwaysOpen){
   if(alwaysOpen){
     return `
     <div class="card" id="mapaCard">
-      <h3 class="section-title">🗺️ Mapa da obra</h3>
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <h3 class="section-title" style="margin:0;">🗺️ Mapa da obra</h3>
+        ${mapaUploadControlsHtml()}
+      </div>
       <div style="margin-top:10px;">
         ${selectorBlock}
         ${body}
@@ -3701,7 +3716,7 @@ function mapaCardHtml(ranking, layout, alwaysOpen){
   }
   return `
   <details class="card" id="mapaCard" ${MAPA_CARD_OPEN?'open':''}>
-    <summary>🗺️ Mapa da obra <span class="chev">▸</span></summary>
+    <summary>🗺️ Mapa da obra <span class="chev">▸</span>${mapaUploadControlsHtml()}</summary>
     <div style="margin-top:10px;">
       ${selectorBlock}
       ${body}
@@ -3731,6 +3746,36 @@ function wireMapaCard(){
   document.getElementById('mapaZoomIn').onclick = ()=> zoomMapaBy(1.4);
   document.getElementById('mapaZoomOut').onclick = ()=> zoomMapaBy(1/1.4);
   document.getElementById('mapaZoomReset').onclick = ()=> resetMapaView();
+  // "Enviar mapa"/"Excluir mapa" (2026-09-17) — só existem no DOM quando MY_ROLE==='planejador'
+  // (ver mapaUploadControlsHtml), por isso tudo aqui é condicional.
+  const btnUploadMapa = document.getElementById('btnUploadMapa');
+  if(btnUploadMapa) btnUploadMapa.onclick = ()=> document.getElementById('fileInputMapa').click();
+  const fileInputMapa = document.getElementById('fileInputMapa');
+  if(fileInputMapa) fileInputMapa.addEventListener('change', async e=>{
+    const file = e.target.files[0];
+    e.target.value = '';
+    if(!file) return;
+    try{ await handleMapaSvgUpload(file); }
+    catch(err){ console.error(err); toast('Erro ao processar o arquivo: '+err.message, 'err'); }
+  });
+  const btnDeleteMapa = document.getElementById('btnDeleteMapa');
+  if(btnDeleteMapa) btnDeleteMapa.onclick = async ()=>{
+    const ok = await confirmModal({
+      title: 'Excluir mapa enviado?',
+      body: CURRENT_OBRA_ID==='jardins-berlim'
+        ? 'Isso remove o mapa enviado e volta a usar o mapa padrão de Jardins Berlim.'
+        : 'Isso remove o mapa enviado — a obra fica sem mapa até alguém enviar outro.',
+      confirmLabel: 'Excluir', danger: true
+    });
+    if(!ok) return;
+    const success = await deleteMapaSvg();
+    if(success){
+      const wrap = document.getElementById('mapaWrap');
+      if(wrap) wrap.innerHTML = '';
+      toast('Mapa excluído.');
+      render();
+    }
+  };
   ensureMapaMounted();
   paintMapa();
   alignMapaStatusLabels();
@@ -4513,8 +4558,8 @@ function openSnapshotsModal(){
     const prevMetasList = document.getElementById('snapMetasList');
     const metasScrollTop = prevMetasList ? prevMetasList.scrollTop : 0;
     openModal(`
-      <h3>Gerenciar semanas enviadas</h3>
-      <p>Exclua snapshots enviados por engano ou com a semana errada — não dá pra desfazer.</p>
+      <h3>Gerenciar planilhas enviadas</h3>
+      <p>Exclua planilhas enviadas por engano ou com a semana errada — não dá pra desfazer.</p>
       <h4 style="margin:16px 0 6px 0; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em;">Planilhas semanais (Base / Realizado)</h4>
       <div id="snapSemanaisList" style="max-height:220px; overflow-y:auto;">
         ${semanais.length ? semanais.map(s=>snapshotRowHtml(s,'data-delsnap')).join('') : '<p class="empty-note">Nenhuma planilha semanal enviada ainda.</p>'}
@@ -4534,19 +4579,6 @@ function openSnapshotsModal(){
           <button class="btn btn-sm" id="delServicos">Excluir</button>
         </div>` : '<p class="empty-note">Nenhuma planilha de serviços enviada ainda.</p>'}
       </div>
-      <h4 style="margin:16px 0 6px 0; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em;">Mapa da obra</h4>
-      <div id="snapMapaList">
-        ${MAPA_SVG_CUSTOM ? `
-        <div class="causa-item" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-          <div>
-            <strong>Mapa enviado</strong>
-            <div class="pkg-meta">enviado em ${new Date(MAPA_SVG_CUSTOM.uploadedAt).toLocaleString('pt-BR')}</div>
-          </div>
-          <button class="btn btn-sm" id="delMapa">Excluir</button>
-        </div>` : CURRENT_OBRA_ID==='jardins-berlim'
-          ? '<p class="empty-note">Usando o mapa padrão de Jardins Berlim — envie um novo pra substituir.</p>'
-          : '<p class="empty-note">Nenhum mapa enviado ainda pra essa obra.</p>'}
-      </div>
       <div class="modal-actions"><button class="btn btn-primary" id="snapFechar">Fechar</button></div>
     `);
     document.getElementById('snapSemanaisList').scrollTop = semanaisScrollTop;
@@ -4561,23 +4593,6 @@ function openSnapshotsModal(){
       if(!ok) return;
       const success = await deleteServicos();
       if(success){ toast('Serviços excluídos.'); render(); paint(); }
-    };
-    const delMapaBtn = document.getElementById('delMapa');
-    if(delMapaBtn) delMapaBtn.onclick = async ()=>{
-      const ok = await confirmModal({
-        title:'Excluir mapa enviado?',
-        body: CURRENT_OBRA_ID==='jardins-berlim'
-          ? 'Isso remove o mapa enviado e volta a usar o mapa padrão de Jardins Berlim.'
-          : 'Isso remove o mapa enviado — a obra fica sem mapa até alguém enviar outro.',
-        confirmLabel:'Excluir', danger:true
-      });
-      if(!ok) return;
-      const success = await deleteMapaSvg();
-      if(success){
-        const wrap = document.getElementById('mapaWrap');
-        if(wrap) wrap.innerHTML = '';
-        toast('Mapa excluído.'); render(); paint();
-      }
     };
     document.querySelectorAll('[data-delsnap]').forEach(b=>{
       b.onclick = async ()=>{
@@ -4681,14 +4696,6 @@ document.getElementById('fileInputServicos').addEventListener('change', async e=
   if(!file) return;
   try{ await handleServicosWorkbook(file); }
   catch(err){ console.error(err); closeModal(); toast('Erro ao processar o arquivo: '+err.message, 'err'); }
-});
-document.getElementById('btnUploadMapa').addEventListener('click', ()=> document.getElementById('fileInputMapa').click());
-document.getElementById('fileInputMapa').addEventListener('change', async e=>{
-  const file = e.target.files[0];
-  e.target.value = '';
-  if(!file) return;
-  try{ await handleMapaSvgUpload(file); }
-  catch(err){ console.error(err); toast('Erro ao processar o arquivo: '+err.message, 'err'); }
 });
 document.getElementById('btnUploadMetas').addEventListener('click', ()=> document.getElementById('fileInputMetas').click());
 document.getElementById('fileInputMetas').addEventListener('change', async e=>{
