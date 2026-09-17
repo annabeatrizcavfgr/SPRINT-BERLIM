@@ -634,6 +634,13 @@ let MESES = []; // [{id, label, weekOrds:[...]}] em ordem cronológica
 let SERVICOS_ROWS = []; // [{pacoteIdx, etapa, acumuladoAnterior, weeks:[{weekOrd,acumulado,realizado}]}]
 let SERVICOS_MES_ID = null; // qual MESES.id essas semanas (1ª, 2ª...) correspondem
 let SERVICOS_META = null; // {uploadedAt, rowCount} do envio atual, ou null se nunca enviou
+// resumo semanal de serviços (2026-09-17, Jardins Frankfurt) — quando a planilha semanal já vem com
+// coluna "Serviço" embutida (ver matchHeaders/handleWorkbook), cada upload salva um resumo pequeno
+// (contagem de casas concluídas por pacote+serviço) em vez de subir a planilha separada de sempre.
+// [{dateRef, uploadedAt, rowCount}], só pra tela "Gerenciar planilhas enviadas" listar/excluir —
+// SERVICOS_ROWS em si é recalculado (computeServicosFromSemanal/refreshServicosRows) a partir do
+// histórico completo, não fica só nessa lista resumida.
+let SERVICOS_SEMANA_META = [];
 // mapa da obra enviado por ela (2026-09-17, multi-obra: cada obra tem seu próprio site/planta, sem
 // jeito de reaproveitar o SVG fixo que só existia pra Jardins Berlim) — {svg, uploadedAt} ou null.
 // Cada casa precisa vir marcada com class="jb-casa" data-key="quadra-casa" no arquivo (mesma
@@ -1212,10 +1219,15 @@ async function fetchMyRole(){
 }
 function updateAuthUi(){
   const isPlan = MY_ROLE === 'planejador';
-  ['btnUpload','btnUploadMetas','btnUploadServicos'].forEach(id=>{
+  ['btnUpload','btnUploadMetas'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = isPlan ? '' : 'none';
   });
+  // "Enviar serviços do pacote" (2026-09-17) some quando essa obra já tem serviços embutidos na
+  // planilha semanal (SERVICOS_SEMANA_META) — a planilha separada ficaria redundante/ignorada nesse
+  // caso (ver refreshServicosRows), então nem oferece o upload pra não confundir.
+  const btnUploadServicos = document.getElementById('btnUploadServicos');
+  if(btnUploadServicos) btnUploadServicos.style.display = (isPlan && !SERVICOS_SEMANA_META.length) ? '' : 'none';
   const btnUsuarios = document.getElementById('btnUsuarios');
   if(btnUsuarios) btnUsuarios.style.display = isPlan ? '' : 'none';
   const btnSair = document.getElementById('btnSair');
@@ -1799,6 +1811,17 @@ async function initDb(){
       METAS_META = metaDocs.filter(s=>s.exists).map(s=>s.data()).sort((a,b)=>a.dateRef<b.dateRef?-1:1);
       await loadMetasIntoView(METAS_STATE_DOC.latest);
     }
+    // serviços embutidos na planilha semanal (2026-09-17, Jardins Frankfurt) — ver saveServicoSemana/
+    // refreshServicosRows. Lido por último, depois de MESES/SELECTED_MES_ID já resolvidos (uiPrefs,
+    // acima), já que refreshServicosRows depende do "mês" selecionado pra montar as semanas.
+    const { docs: servicosSemanaDocs } = await db.collection('servicosSemana').get();
+    SERVICOS_SEMANA_META = servicosSemanaDocs
+      .map(d=>({ dateRef: d.id, uploadedAt: d.data().uploadedAt, rowCount: (d.data().items||[]).length }))
+      .sort((a,b)=>a.dateRef<b.dateRef?-1:1);
+    await refreshServicosRows();
+    // idempotente e barata — refeita aqui pra já refletir SERVICOS_SEMANA_META (só resolvido agora,
+    // depois que a tela de login já chamou updateAuthUi() uma vez sem saber disso ainda).
+    updateAuthUi();
   }catch(e){
     console.error('initDb failed', e);
   }
@@ -1826,6 +1849,101 @@ async function deleteServicos(){
   }
   SERVICOS_ROWS = []; SERVICOS_MES_ID = null; SERVICOS_META = null;
   return true;
+}
+// serviços embutidos na planilha semanal (2026-09-17, Jardins Frankfurt — ver matchHeaders/
+// handleWorkbook) — cada upload semanal com coluna "Serviço" salva um resumo pequeno (contagem de
+// casas concluídas por pacote+serviço NAQUELA semana, não o detalhe casa a casa) em
+// "servicosSemana/{dateRef}", em vez de subir a planilha separada de sempre.
+async function saveServicoSemana(dateRef, servicoRows){
+  const porPacote = new Map();
+  servicoRows.forEach(r=>{
+    if(!porPacote.has(r.pacoteIdx)) porPacote.set(r.pacoteIdx, new Map());
+    const porEtapa = porPacote.get(r.pacoteIdx);
+    if(!porEtapa.has(r.etapa)) porEtapa.set(r.etapa, 0);
+    if(r.realizadoPct>=100) porEtapa.set(r.etapa, porEtapa.get(r.etapa)+1);
+  });
+  const items = [];
+  porPacote.forEach((porEtapa, pacoteIdx)=> porEtapa.forEach((doneCount, etapa)=> items.push({pacoteIdx, etapa, doneCount})));
+  const uploadedAt = new Date().toISOString();
+  if(db) await db.doc('servicosSemana/'+dateRef).set({ items, uploadedAt });
+  SERVICOS_SEMANA_META = SERVICOS_SEMANA_META.filter(s=>s.dateRef!==dateRef)
+    .concat([{dateRef, uploadedAt, rowCount: items.length}])
+    .sort((a,b)=>a.dateRef<b.dateRef?-1:1);
+}
+async function deleteServicoSemana(dateRef){
+  if(db){
+    try{ await db.doc('servicosSemana/'+dateRef).delete(); }
+    catch(e){ console.error('deleteServicoSemana failed', e); toast('Falha ao excluir: '+(e && e.message ? e.message : e), 'err'); return false; }
+  }
+  SERVICOS_SEMANA_META = SERVICOS_SEMANA_META.filter(s=>s.dateRef!==dateRef);
+  if(SERVICOS_SEMANA_META.length){
+    await refreshServicosRows();
+  } else if(db){
+    // sem resumo semanal nenhum sobrando — volta a carregar da planilha separada dessa obra, se
+    // existir (mesma leitura que initDb() já faz); refreshServicosRows() sozinho não faz isso, ele só
+    // ATUALIZA quando ainda sobra histórico — aqui é o caso contrário, "acabou o histórico".
+    const sv = await db.doc('meta/servicos').get();
+    if(sv.exists){
+      const d = sv.data();
+      SERVICOS_ROWS = d.rows||[]; SERVICOS_MES_ID = d.mesId||null;
+      SERVICOS_META = { uploadedAt: d.uploadedAt, rowCount: d.rowCount||0 };
+    } else {
+      SERVICOS_ROWS = []; SERVICOS_MES_ID = null;
+    }
+  }
+  updateAuthUi();
+  return true;
+}
+// deriva o SERVICOS_ROWS (mesmo formato de sempre — servicosCardHtml não precisa saber a origem) a
+// partir do histórico de resumos semanais em vez de uma planilha separada. "weekOrds" = as semanas
+// do mês selecionado (mesma convenção do upload manual: 1ª posição = 1ª semana do mês). Uma semana
+// sem upload novo carrega adiante o último resumo conhecido (mesmo "carry forward" que o resto do
+// app já faz pra semana sem dado novo).
+async function computeServicosFromSemanal(weekOrds){
+  if(!db || !weekOrds.length) return [];
+  const { docs } = await db.collection('servicosSemana').get();
+  const porData = docs.map(d=>({ dateRef: d.id, items: d.data().items||[] })).sort((a,b)=>a.dateRef<b.dateRef?-1:1);
+  if(!porData.length) return [];
+  const firstWeekIso = isoFromOrd(weekOrds[0]);
+  const antes = porData.filter(p=>p.dateRef<firstWeekIso);
+  const baselineMap = new Map();
+  if(antes.length) antes[antes.length-1].items.forEach(it=> baselineMap.set(it.pacoteIdx+'|'+it.etapa, it.doneCount));
+  const chaves = new Set();
+  porData.forEach(p=> p.items.forEach(it=> chaves.add(it.pacoteIdx+'|'+it.etapa)));
+  const porSemana = weekOrds.map(w=>{
+    const iso = isoFromOrd(w);
+    const candidatos = porData.filter(p=>p.dateRef<=iso);
+    const map = new Map();
+    if(candidatos.length) candidatos[candidatos.length-1].items.forEach(it=> map.set(it.pacoteIdx+'|'+it.etapa, it.doneCount));
+    return { weekOrd: w, map };
+  });
+  const rows = [];
+  chaves.forEach(chave=>{
+    const sep = chave.indexOf('|');
+    const pacoteIdx = parseInt(chave.slice(0,sep),10);
+    const etapa = chave.slice(sep+1);
+    const acumuladoAnterior = baselineMap.has(chave) ? baselineMap.get(chave) : 0;
+    let prev = acumuladoAnterior;
+    const weeks = porSemana.map(s=>{
+      const acumulado = s.map.has(chave) ? s.map.get(chave) : prev;
+      const realizado = acumulado - prev;
+      prev = acumulado;
+      return { weekOrd: s.weekOrd, acumulado, realizado };
+    });
+    rows.push({ pacoteIdx, etapa, acumuladoAnterior, weeks });
+  });
+  return rows;
+}
+// decide de qual fonte vem "Serviços do pacote": se essa obra tem histórico de resumos semanais
+// (planilha semanal com "Serviço" embutido), deriva dali, seguindo o MESMO "mês" selecionado no
+// resto do app; senão, mantém o que já foi carregado da planilha separada de sempre (meta/servicos).
+// Chamado no boot (initDb) e de novo assim que uma planilha semanal nova terminar de subir.
+async function refreshServicosRows(){
+  if(!SERVICOS_SEMANA_META.length) return;
+  const mes = selectedMes();
+  if(!mes) return;
+  SERVICOS_ROWS = await computeServicosFromSemanal(mes.weekOrds);
+  SERVICOS_MES_ID = mes.id;
 }
 // mapa da obra (2026-09-17) — mesmo esquema de doc único que "Serviços do pacote" (arquivo pequeno,
 // um SVG de algumas centenas de KB no máximo, não precisa do esquema de chunks dos snapshots).
@@ -2032,6 +2150,11 @@ function matchHeaders(headerRow){
     const h = normalizeHeader(raw);
     if(!h) return;
     if(map.pacote==null && h.includes('pacote')) map.pacote = idx;
+    // "Serviço" (2026-09-17, Jardins Frankfurt) — quando a planilha semanal já traz o detalhe por
+    // serviço embutido (uma linha "-" agregada por casa×pacote, mais 1+ linhas por serviço daquele
+    // pacote naquela casa), essa coluna é o que diferencia as duas — ver handleWorkbook. Planilhas
+    // sem essa coluna (Jardins Berlim) continuam exatamente como antes, sem nenhum filtro extra.
+    else if(map.servico==null && h==='servico') map.servico = idx;
     else if(map.dataReferencia==null && h.includes('referenc')) map.dataReferencia = idx;
     else if(map.baseIni==null && h.includes('inicio') && h.includes('linha de base')) map.baseIni = idx;
     else if(map.baseFim==null && h.includes('termino') && h.includes('linha de base')) map.baseFim = idx;
@@ -2236,6 +2359,14 @@ async function handleWorkbook(file, kind){
   const workingPacotes = LOOKUPS.pacotes.slice();
   const workingResp = LOOKUPS.responsaveis.slice();
   const encoded = [];
+  // serviços embutidos na planilha semanal (2026-09-17, Jardins Frankfurt — pedido dela: "a planilha
+  // semanal já vem com os serviços por pacote [...] se vier junto na planilha semanal, puxa de lá").
+  // Só populado quando a planilha tem coluna "Serviço": cada casa×pacote vem como uma linha "-"
+  // (agregada, essa sim entra em `encoded`) seguida de 1+ linhas por serviço daquele pacote (essas
+  // NÃO entram em `encoded` — cada uma conta como sua PRÓPRIA casa×pacote senão, inflando a
+  // contagem de casas de cada pacote pelo número de serviços que ele tem). Guardadas aqui pra virar
+  // um resumo semanal por (pacote, serviço) depois — ver persistSnapshot/computeServicosFromSemanal.
+  const servicoRows = [];
   const dateRefsFound = new Set();
   for(let r=headerRowIdx+1; r<grid.length; r++){
     const row = grid[r];
@@ -2258,6 +2389,13 @@ async function handleWorkbook(file, kind){
     if(map.dataReferencia!=null){
       const dr = refDateFromCell(row[map.dataReferencia]);
       if(dr) dateRefsFound.add(dr);
+    }
+    if(map.servico!=null){
+      const servicoRaw = String(row[map.servico]||'').trim();
+      if(servicoRaw && servicoRaw!=='-'){
+        servicoRows.push({ pacoteIdx, etapa: servicoRaw, vigFim, realizadoPct });
+        continue; // linha de detalhe por serviço — não é a linha agregada da casa×pacote
+      }
     }
     encoded.push([pos.quadra, pos.casa, pacoteIdx, respIdx,
       baseIni==null?-1:baseIni, baseFim==null?-1:baseFim,
@@ -2342,6 +2480,12 @@ async function handleWorkbook(file, kind){
       const freshMeta = {dateRef, rawDateRef, uploadedAt:new Date().toISOString(), rowCount:encoded.length, chunkCount:chunkRows(encoded).length};
       if(isMetas) METAS_META = METAS_META.filter(s=>s.dateRef!==dateRef).concat([freshMeta]).sort((a,b)=>a.dateRef<b.dateRef?-1:1);
       else SNAPSHOTS_META = SNAPSHOTS_META.filter(s=>s.dateRef!==dateRef).concat([freshMeta]).sort((a,b)=>a.dateRef<b.dateRef?-1:1);
+      // serviços embutidos nessa planilha semanal (coluna "Serviço", ver mais acima) — resumo salvo à
+      // parte, não bloqueia a importação principal se falhar (por isso o try/catch próprio aqui).
+      if(!isMetas && servicoRows.length){
+        try{ await saveServicoSemana(dateRef, servicoRows); }
+        catch(e){ console.error('saveServicoSemana failed', e); toast('Planilha importada, mas o resumo de serviços não foi salvo: '+(e && e.message ? e.message : e), 'warn'); }
+      }
     }catch(e){
       closeModal();
       const code = e && e.code;
@@ -2368,6 +2512,7 @@ async function handleWorkbook(file, kind){
     populateWeekPicker();
   }
   applyMetasOverride();
+  if(!isMetas){ await refreshServicosRows(); updateAuthUi(); }
   toast((isMetas?'Metas do mês importadas: ':'Planilha importada: ')+encoded.length+' linhas em '+fmtDate2(dateRef)+'.');
 
   if(regress.length){
@@ -4568,9 +4713,10 @@ function openSnapshotsModal(){
       <div id="snapMetasList" style="max-height:220px; overflow-y:auto;">
         ${metas.length ? metas.map(s=>snapshotRowHtml(s,'data-delmetas',true)).join('') : '<p class="empty-note">Nenhuma planilha de metas enviada ainda.</p>'}
       </div>
-      <h4 style="margin:16px 0 6px 0; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em;">Serviços do pacote</h4>
-      <div id="snapServicosList">
-        ${SERVICOS_META ? `
+      <h4 style="margin:16px 0 6px 0; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em;">Serviços do pacote${SERVICOS_SEMANA_META.length?' (embutido na planilha semanal)':''}</h4>
+      <div id="snapServicosList" style="max-height:220px; overflow-y:auto;">
+        ${SERVICOS_SEMANA_META.length ? SERVICOS_SEMANA_META.slice().sort((a,b)=>a.dateRef<b.dateRef?1:-1).map(s=>snapshotRowHtml(s,'data-delservsem')).join('')
+          : SERVICOS_META ? `
         <div class="causa-item" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
           <div>
             <strong>${(MESES.find(m=>m.id===SERVICOS_MES_ID)||{}).label || 'Mês não identificado'}</strong>
@@ -4594,6 +4740,19 @@ function openSnapshotsModal(){
       const success = await deleteServicos();
       if(success){ toast('Serviços excluídos.'); render(); paint(); }
     };
+    document.querySelectorAll('[data-delservsem]').forEach(b=>{
+      b.onclick = async ()=>{
+        const dr = b.dataset.delservsem;
+        const ok = await confirmModal({
+          title:'Excluir este resumo de serviços?',
+          body:'Isso remove o resumo de serviços de <strong class="mono">'+fmtDate2(dr)+'</strong> (não mexe na planilha semanal em si, só no resumo de serviços derivado dela).',
+          confirmLabel:'Excluir', danger:true
+        });
+        if(!ok) return;
+        const success = await deleteServicoSemana(dr);
+        if(success){ toast('Resumo de serviços excluído.'); render(); paint(); }
+      };
+    });
     document.querySelectorAll('[data-delsnap]').forEach(b=>{
       b.onclick = async ()=>{
         const dr = b.dataset.delsnap;
