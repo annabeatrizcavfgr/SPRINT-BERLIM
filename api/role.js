@@ -31,6 +31,17 @@ export default async function handler(req, res) {
         if (error) throw error;
         return res.status(200).json({ users: data || [], myEmail: user.email });
       }
+      // "diretorio" de todo mundo que ja logou em QUALQUER obra (so e-mail, sem papel/status) -
+      // alimenta as sugestoes de "adicionar alguem que ja usa o sistema" (2026-09-17, pedido dela:
+      // "podia dar as opcoes das pessoas cadastradas") em vez de ela ter que lembrar/digitar o
+      // e-mail exato de cor. Mesmo gate de planejador da obra atual que o resto da tela Usuarios.
+      if (req.query.directory === 'true') {
+        if (mine.role !== 'planejador') return res.status(403).json({ error: 'sem permissao' });
+        const { data, error } = await admin.from('user_roles').select('email').order('email');
+        if (error) throw error;
+        const emails = [...new Set((data || []).map((r) => r.email))];
+        return res.status(200).json({ emails });
+      }
       return res.status(200).json({ role: mine.role, status: mine.status, email: user.email });
     }
 

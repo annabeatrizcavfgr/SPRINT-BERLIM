@@ -1559,14 +1559,23 @@ async function initAuth(){
 async function openUsersModal(){
   if(MY_ROLE !== 'planejador'){ toast('Só planejador acessa essa tela.', 'warn'); return; }
   let users = [];
+  let directory = []; // e-mails de quem já logou em QUALQUER obra — vira sugestão no campo "Adicionar"
   async function carregarUsers(){
     const r = await fetch('/api/role?obra_id='+encodeURIComponent(CURRENT_OBRA_ID)+'&list=true', { headers: await authHeaders() });
     const j = await r.json();
     if(!r.ok) throw new Error(j.error||'falha ao carregar');
     users = j.users||[];
   }
+  async function carregarDirectory(){
+    try{
+      const r = await fetch('/api/role?obra_id='+encodeURIComponent(CURRENT_OBRA_ID)+'&directory=true', { headers: await authHeaders() });
+      const j = await r.json();
+      if(r.ok) directory = j.emails||[];
+    }catch(e){ /* sugestão é só conveniência — sem ela o campo continua funcionando digitado */ }
+  }
   try{ await carregarUsers(); }
   catch(e){ toast('Falha ao carregar usuários: '+(e && e.message?e.message:e), 'err'); return; }
+  await carregarDirectory();
   async function patchUser(email, patch){
     const r = await fetch('/api/role', {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(Object.assign({email, obra_id: CURRENT_OBRA_ID}, patch))});
     const j = await r.json();
@@ -1624,7 +1633,10 @@ async function openUsersModal(){
       <div class="form-field">
         <label>Adicionar alguém que já usa o sistema (já entrou em outra obra)</label>
         <div style="display:flex; gap:8px;">
-          <input type="email" id="addUserEmail" placeholder="E-mail" class="search-input" style="margin:0; flex:1;">
+          <input type="email" id="addUserEmail" list="addUserEmailOptions" placeholder="E-mail" class="search-input" style="margin:0; flex:1;">
+          <datalist id="addUserEmailOptions">
+            ${directory.filter(e=>!users.some(u=>u.email===e)).map(e=>`<option value="${e}"></option>`).join('')}
+          </datalist>
           <select class="inline" id="addUserRole">
             <option value="visualizador">Visualizador</option>
             <option value="planejador">Planejador</option>
