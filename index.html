@@ -557,6 +557,8 @@ select.inline{font:inherit; border:1px solid var(--border); border-radius:8px; p
       <input type="file" id="fileInputMetas" accept=".xlsx" hidden>
       <button class="btn btn-sm" id="btnUploadServicos" title="Detalhe por serviço dentro do pacote — só pra pacotes específicos, ~1x por mês">🧱 Enviar serviços do pacote</button>
       <input type="file" id="fileInputServicos" accept=".xlsx" hidden>
+      <button class="btn btn-sm" id="btnUploadMapa" title="SVG do mapa da obra, com cada casa marcada (class=&quot;jb-casa&quot; data-key=&quot;quadra-casa&quot;)">🗺️ Enviar mapa</button>
+      <input type="file" id="fileInputMapa" accept=".svg" hidden>
       <button class="btn btn-sm" id="btnGerenciarSemanas" title="Excluir semanas/metas enviadas por engano">🗑️ Gerenciar semanas</button>
       <button class="btn btn-sm" id="btnExportar" title="Imprimir ou salvar a tela atual em PDF">🖨️ Exportar</button>
       <button class="btn btn-sm" id="btnUsuarios" title="Gerenciar quem pode entrar e editar" style="display:none;">👤 Usuários</button>
@@ -634,6 +636,14 @@ let MESES = []; // [{id, label, weekOrds:[...]}] em ordem cronológica
 let SERVICOS_ROWS = []; // [{pacoteIdx, etapa, acumuladoAnterior, weeks:[{weekOrd,acumulado,realizado}]}]
 let SERVICOS_MES_ID = null; // qual MESES.id essas semanas (1ª, 2ª...) correspondem
 let SERVICOS_META = null; // {uploadedAt, rowCount} do envio atual, ou null se nunca enviou
+// mapa da obra enviado por ela (2026-09-17, multi-obra: cada obra tem seu próprio site/planta, sem
+// jeito de reaproveitar o SVG fixo que só existia pra Jardins Berlim) — {svg, uploadedAt} ou null.
+// Cada casa precisa vir marcada com class="jb-casa" data-key="quadra-casa" no arquivo (mesma
+// convenção do mapa original, gerado por ela numa ferramenta externa de desenho) — ver
+// ensureMapaMounted/paintMapa. Jardins Berlim continua usando o <template id="mapaSvgTemplate">
+// fixo (ver abaixo) enquanto ninguém subir um mapa novo pra ela; qualquer OUTRA obra sem upload
+// nenhum mostra um aviso de "nenhum mapa ainda" em vez de herdar o de Jardins Berlim por engano.
+let MAPA_SVG_CUSTOM = null;
 
 // per-viewer UI preferences (not shared data — kept in this browser only)
 function lsGet(key, fallback){ try{ const v = localStorage.getItem(key); return v==null?fallback:JSON.parse(v); }catch(e){ return fallback; } }
@@ -1204,7 +1214,7 @@ async function fetchMyRole(){
 }
 function updateAuthUi(){
   const isPlan = MY_ROLE === 'planejador';
-  ['btnUpload','btnUploadMetas','btnUploadServicos'].forEach(id=>{
+  ['btnUpload','btnUploadMetas','btnUploadServicos','btnUploadMapa'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = isPlan ? '' : 'none';
   });
@@ -1721,8 +1731,12 @@ async function initDb(){
   // Nem Claude nem banco remoto disponível (arquivo aberto direto/offline) — usa o banco local em vez
   // de ficar sem persistência nenhuma.
   if(!db) db = createLocalDb();
+  // reseta antes de reler — sem isso, trocar de obra (multi-obra, 2026-09-17) deixava o mapa
+  // enviado pela obra ANTERIOR na tela até alguém subir um novo pra essa obra, já que o `if(msvg.
+  // exists)` abaixo só ATUALIZA a variável quando a obra atual TEM um mapa próprio, nunca limpa.
+  MAPA_SVG_CUSTOM = null;
   try{
-    const [lk, st, mz, mst, qf, sv, up] = await Promise.all([
+    const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
       db.doc('meta/state').get(),
       db.doc('meta/meses').get(),
@@ -1730,6 +1744,7 @@ async function initDb(){
       db.doc('meta/quadraFiltro').get(),
       db.doc('meta/servicos').get(),
       db.doc('meta/uiPrefs').get(),
+      db.doc('meta/mapaSvg').get(),
     ]);
     if(lk.exists){ const d = lk.data(); LOOKUPS = { pacotes: d.pacotes||[], responsaveis: d.responsaveis||[] }; }
     if(st.exists){ const d = st.data(); STATE_DOC = { dateRefs: d.dateRefs||[], latest: d.latest||null, previous: d.previous||null }; }
@@ -1744,6 +1759,7 @@ async function initDb(){
       SERVICOS_ROWS = d.rows||[]; SERVICOS_MES_ID = d.mesId||null;
       SERVICOS_META = { uploadedAt: d.uploadedAt, rowCount: d.rowCount||0 };
     }
+    if(msvg.exists){ const d = msvg.data(); MAPA_SVG_CUSTOM = { svg: d.svg, uploadedAt: d.uploadedAt }; }
     // ordem/filtros/mês/modo apresentação etc. deixados por ela — mesma ideia do QUADRA_FILTRO_PACOTES
     // acima, mas agrupados num doc só (ver saveUiPrefs). Se nunca foi salvo ainda, fica nos defaults.
     if(up.exists){
@@ -1812,6 +1828,43 @@ async function deleteServicos(){
   }
   SERVICOS_ROWS = []; SERVICOS_MES_ID = null; SERVICOS_META = null;
   return true;
+}
+// mapa da obra (2026-09-17) — mesmo esquema de doc único que "Serviços do pacote" (arquivo pequeno,
+// um SVG de algumas centenas de KB no máximo, não precisa do esquema de chunks dos snapshots).
+async function saveMapaSvg(svgText){
+  const uploadedAt = new Date().toISOString();
+  if(db) await db.doc('meta/mapaSvg').set({ svg: svgText, uploadedAt });
+  MAPA_SVG_CUSTOM = { svg: svgText, uploadedAt };
+}
+async function deleteMapaSvg(){
+  if(db){
+    try{ await db.doc('meta/mapaSvg').delete(); }
+    catch(e){ console.error('deleteMapaSvg failed', e); toast('Falha ao excluir: '+(e && e.message ? e.message : e), 'err'); return false; }
+  }
+  MAPA_SVG_CUSTOM = null;
+  return true;
+}
+// lê o arquivo .svg enviado, confere se parece mesmo um SVG e avisa (sem bloquear) se não achar
+// nenhuma casa marcada — nesse caso o mapa carrega mas nenhuma casa vai pintar com status, porque o
+// app não tem como adivinhar qual forma é qual casa sem essa marcação (ver comentário de
+// MAPA_SVG_CUSTOM lá em cima).
+async function handleMapaSvgUpload(file){
+  const text = await file.text();
+  if(!/<svg[\s>]/i.test(text)){ toast('Isso não parece um arquivo SVG válido.', 'err'); return; }
+  const casaCount = (text.match(/class="jb-casa"/g)||[]).length;
+  if(casaCount===0){
+    const ok = await confirmModal({
+      title: 'Nenhuma casa encontrada nesse SVG',
+      body: 'Não encontrei nenhuma forma marcada com <code>class="jb-casa"</code> nesse arquivo — o mapa vai aparecer, mas nenhuma casa vai pintar com o status (concluído, atrasado, etc). Quer enviar mesmo assim?',
+      confirmLabel: 'Enviar mesmo assim', danger: true
+    });
+    if(!ok) return;
+  }
+  await saveMapaSvg(text);
+  const wrap = document.getElementById('mapaWrap');
+  if(wrap) wrap.innerHTML = ''; // força remontar com o mapa novo (ensureMapaMounted só monta se estiver vazio)
+  toast('Mapa atualizado' + (casaCount ? ' — '+casaCount+' casa(s) encontrada(s).' : '.'));
+  render();
 }
 async function readSnapshotRows(dateRef){
   const snap = await db.doc('snapshots/'+dateRef).get();
@@ -3376,9 +3429,19 @@ function wireMapaGlobalDrag(){
 function ensureMapaMounted(){
   const wrap = document.getElementById('mapaWrap');
   if(!wrap) return;
-  const tpl = document.getElementById('mapaSvgTemplate');
-  if(!tpl || wrap.querySelector('svg')) return; // já montado (ou sem template ainda)
-  wrap.appendChild(tpl.content.cloneNode(true));
+  if(wrap.querySelector('svg') || wrap.querySelector('.mapa-sem-svg')) return; // já montado (svg OU aviso de vazio)
+  // mapa próprio da obra (2026-09-17) tem prioridade; sem upload nenhum, Jardins Berlim cai no
+  // <template> fixo de sempre (ela pediu pra manter — "no berlim não vou precisar mudar"); qualquer
+  // OUTRA obra sem upload mostra um aviso em vez de herdar o mapa de Jardins Berlim por engano.
+  if(MAPA_SVG_CUSTOM){
+    wrap.innerHTML = MAPA_SVG_CUSTOM.svg;
+  } else if(CURRENT_OBRA_ID==='jardins-berlim'){
+    const tpl = document.getElementById('mapaSvgTemplate');
+    if(tpl) wrap.appendChild(tpl.content.cloneNode(true));
+  } else {
+    wrap.innerHTML = '<p class="empty-note mapa-sem-svg" style="padding:40px 16px;">Nenhum mapa enviado ainda pra essa obra — clique em "🗺️ Enviar mapa" pra subir o arquivo SVG.</p>';
+    return;
+  }
   const svgEl = wrap.querySelector('svg');
   if(!svgEl) return;
   // "meet" (contain) — o CSS do #mapaWrap agora casa a proporção do container com a do viewBox
@@ -4471,6 +4534,19 @@ function openSnapshotsModal(){
           <button class="btn btn-sm" id="delServicos">Excluir</button>
         </div>` : '<p class="empty-note">Nenhuma planilha de serviços enviada ainda.</p>'}
       </div>
+      <h4 style="margin:16px 0 6px 0; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em;">Mapa da obra</h4>
+      <div id="snapMapaList">
+        ${MAPA_SVG_CUSTOM ? `
+        <div class="causa-item" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+          <div>
+            <strong>Mapa enviado</strong>
+            <div class="pkg-meta">enviado em ${new Date(MAPA_SVG_CUSTOM.uploadedAt).toLocaleString('pt-BR')}</div>
+          </div>
+          <button class="btn btn-sm" id="delMapa">Excluir</button>
+        </div>` : CURRENT_OBRA_ID==='jardins-berlim'
+          ? '<p class="empty-note">Usando o mapa padrão de Jardins Berlim — envie um novo pra substituir.</p>'
+          : '<p class="empty-note">Nenhum mapa enviado ainda pra essa obra.</p>'}
+      </div>
       <div class="modal-actions"><button class="btn btn-primary" id="snapFechar">Fechar</button></div>
     `);
     document.getElementById('snapSemanaisList').scrollTop = semanaisScrollTop;
@@ -4485,6 +4561,23 @@ function openSnapshotsModal(){
       if(!ok) return;
       const success = await deleteServicos();
       if(success){ toast('Serviços excluídos.'); render(); paint(); }
+    };
+    const delMapaBtn = document.getElementById('delMapa');
+    if(delMapaBtn) delMapaBtn.onclick = async ()=>{
+      const ok = await confirmModal({
+        title:'Excluir mapa enviado?',
+        body: CURRENT_OBRA_ID==='jardins-berlim'
+          ? 'Isso remove o mapa enviado e volta a usar o mapa padrão de Jardins Berlim.'
+          : 'Isso remove o mapa enviado — a obra fica sem mapa até alguém enviar outro.',
+        confirmLabel:'Excluir', danger:true
+      });
+      if(!ok) return;
+      const success = await deleteMapaSvg();
+      if(success){
+        const wrap = document.getElementById('mapaWrap');
+        if(wrap) wrap.innerHTML = '';
+        toast('Mapa excluído.'); render(); paint();
+      }
     };
     document.querySelectorAll('[data-delsnap]').forEach(b=>{
       b.onclick = async ()=>{
@@ -4588,6 +4681,14 @@ document.getElementById('fileInputServicos').addEventListener('change', async e=
   if(!file) return;
   try{ await handleServicosWorkbook(file); }
   catch(err){ console.error(err); closeModal(); toast('Erro ao processar o arquivo: '+err.message, 'err'); }
+});
+document.getElementById('btnUploadMapa').addEventListener('click', ()=> document.getElementById('fileInputMapa').click());
+document.getElementById('fileInputMapa').addEventListener('change', async e=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  try{ await handleMapaSvgUpload(file); }
+  catch(err){ console.error(err); toast('Erro ao processar o arquivo: '+err.message, 'err'); }
 });
 document.getElementById('btnUploadMetas').addEventListener('click', ()=> document.getElementById('fileInputMetas').click());
 document.getElementById('fileInputMetas').addEventListener('change', async e=>{
