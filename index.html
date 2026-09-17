@@ -1559,16 +1559,19 @@ async function initAuth(){
 async function openUsersModal(){
   if(MY_ROLE !== 'planejador'){ toast('Só planejador acessa essa tela.', 'warn'); return; }
   let users = [];
-  try{
+  async function carregarUsers(){
     const r = await fetch('/api/role?obra_id='+encodeURIComponent(CURRENT_OBRA_ID)+'&list=true', { headers: await authHeaders() });
     const j = await r.json();
     if(!r.ok) throw new Error(j.error||'falha ao carregar');
     users = j.users||[];
-  }catch(e){ toast('Falha ao carregar usuários: '+(e && e.message?e.message:e), 'err'); return; }
+  }
+  try{ await carregarUsers(); }
+  catch(e){ toast('Falha ao carregar usuários: '+(e && e.message?e.message:e), 'err'); return; }
   async function patchUser(email, patch){
     const r = await fetch('/api/role', {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(Object.assign({email, obra_id: CURRENT_OBRA_ID}, patch))});
     const j = await r.json();
     if(!r.ok) throw new Error(j.error||'falha');
+    return j;
   }
   // exclusão (2026-09-17, pedido dela: "criar alguma coisa pra excluir usuários, permissão pra
   // planejador") — bloqueia a pessoa de vez: apaga o login dela no Supabase Auth E a linha em
@@ -1618,6 +1621,17 @@ async function openUsersModal(){
             </div>
           </div>`).join('') : '<p class="empty-note">Ninguém aprovado ainda.</p>'}
       </div>
+      <div class="form-field">
+        <label>Adicionar alguém que já usa o sistema (já entrou em outra obra)</label>
+        <div style="display:flex; gap:8px;">
+          <input type="email" id="addUserEmail" placeholder="E-mail" class="search-input" style="margin:0; flex:1;">
+          <select class="inline" id="addUserRole">
+            <option value="visualizador">Visualizador</option>
+            <option value="planejador">Planejador</option>
+          </select>
+          <button class="btn btn-primary" id="btnAddUser">Adicionar</button>
+        </div>
+      </div>
       <div class="modal-actions"><button class="btn btn-primary" id="usersFechar">Concluído</button></div>
     `);
     document.querySelectorAll('[data-aprovar]').forEach(btn=>{
@@ -1659,6 +1673,21 @@ async function openUsersModal(){
         }catch(e){ toast('Falha ao excluir: '+(e && e.message?e.message:e), 'err'); }
       };
     });
+    // "adicionar alguém que já usa o sistema" (2026-09-17, pedido dela: "tem um usuário que já
+    // havia feito login no jardins berlim, agora quero mudar ela pro jardins frankfurt também") —
+    // adiciona direto, já aprovada, sem precisar que a pessoa peça acesso primeiro (ver api/role.js:
+    // só funciona se ela já tiver feito login em QUALQUER obra alguma vez).
+    document.getElementById('btnAddUser').onclick = async ()=>{
+      const email = document.getElementById('addUserEmail').value.trim();
+      const role = document.getElementById('addUserRole').value;
+      if(!email){ toast('Preencha o e-mail.', 'warn'); return; }
+      try{
+        await patchUser(email, {role, status:'approved'});
+        await carregarUsers();
+        toast(email+' adicionado(a) como '+role+'.');
+        paint();
+      }catch(e){ toast('Falha ao adicionar: '+(e && e.message?e.message:e), 'err'); }
+    };
     document.getElementById('usersFechar').onclick = closeModal;
   }
   paint();

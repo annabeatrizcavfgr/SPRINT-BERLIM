@@ -2,7 +2,12 @@
 // quem esta logado NAQUELA obra especifica (?obra_id=X obrigatorio); com ?list=true (so planejador
 // daquela obra) devolve todo mundo cadastrado NELA, pra tela "Usuarios". POST (so planejador daquela
 // obra) muda o papel e/ou status de alguem pelo e-mail, dentro daquela obra (aprovar, promover,
-// rebaixar) - nao afeta o papel dessa pessoa em nenhuma outra obra que ela tambem participe. DELETE
+// rebaixar) - nao afeta o papel dessa pessoa em nenhuma outra obra que ela tambem participe. Se a
+// pessoa ainda nao tem registro NESSA obra mas ja fez login em QUALQUER outra (2026-09-17, pedido
+// dela: "tem um usuario que ja havia feito login no jardins berlim, agora quero mudar ela pro
+// jardins frankfurt tambem") - um planejador pode adiciona-la direto aqui, ja aprovada, sem ela
+// precisar pedir acesso primeiro (ver "adicionar quem ja usa o sistema" na tela Usuarios). So da 404
+// se essa pessoa nunca logou em nenhuma obra - nesse caso nao ha user_id nenhum pra vincular. DELETE
 // (so planejador daquela obra) exclui o acesso da pessoa A ESSA OBRA - so apaga o login dela por
 // completo no Supabase Auth (auth.admin.deleteUser) se essa era a UNICA obra em que ela tinha
 // registro; se ela ainda participa de outra(s), so a linha desta obra e removida e o login continua
@@ -38,13 +43,24 @@ export default async function handler(req, res) {
       if (role && !['planejador', 'visualizador'].includes(role)) return res.status(400).json({ error: 'role invalido' });
       if (status && !['pending', 'approved'].includes(status)) return res.status(400).json({ error: 'status invalido' });
       const { data: existing } = await admin.from('user_roles').select('user_id').eq('email', email).eq('obra_id', obraId).maybeSingle();
-      if (!existing) return res.status(404).json({ error: 'essa pessoa ainda nao pediu acesso a essa obra' });
-      const patch = {};
-      if (role) patch.role = role;
-      if (status) patch.status = status;
-      const { error } = await admin.from('user_roles').update(patch).eq('email', email).eq('obra_id', obraId);
-      if (error) throw error;
-      return res.status(200).json({ ok: true });
+      if (existing) {
+        const patch = {};
+        if (role) patch.role = role;
+        if (status) patch.status = status;
+        const { error } = await admin.from('user_roles').update(patch).eq('email', email).eq('obra_id', obraId);
+        if (error) throw error;
+        return res.status(200).json({ ok: true });
+      }
+      // ainda nao tem linha NESSA obra - se ja logou em QUALQUER outra obra, o user_id dela ja
+      // existe no Supabase Auth; um planejador pode adiciona-la direto aqui, ja aprovada.
+      const { data: qualquerLinha } = await admin.from('user_roles').select('user_id').eq('email', email).limit(1).maybeSingle();
+      if (!qualquerLinha) return res.status(404).json({ error: 'essa pessoa ainda nao fez login em nenhuma obra' });
+      const { error: insertError } = await admin.from('user_roles').insert({
+        user_id: qualquerLinha.user_id, obra_id: obraId, email,
+        role: role || 'visualizador', status: status || 'approved',
+      });
+      if (insertError) throw insertError;
+      return res.status(200).json({ ok: true, created: true });
     }
 
     if (req.method === 'DELETE') {
