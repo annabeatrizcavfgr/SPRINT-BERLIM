@@ -12,11 +12,26 @@
 // "Colecao" = todo documento cujo caminho e "<caminho-colecao>/<id>", sem nenhuma barra a mais depois
 // disso. Resolvido com um LIKE direto no banco + um filtro em JS pra manter so os filhos diretos.
 //
+// MULTI-OBRA (2026-09-17): todo path de verdade (menos o healthcheck) precisa comecar com
+// "obras/<obraId>/..." — e o "<obraId>" e extraido do proprio path e usado pra checar o papel/status
+// dessa pessoa NAQUELA obra especifica, nunca um papel global. Antes disso o servidor confiava
+// cegamente em qualquer "path" que o navegador mandasse; agora um path fora do formato "obras/.../"
+// e recusado, e mesmo um path bem-formado só é atendido se a pessoa realmente tiver acesso aquela
+// obra — isso e o que impede o navegador de uma obra pedir (por engano ou de proposito) os dados de
+// outra so trocando o "path" na mao.
+//
 // LOGIN/PERMISSAO: toda chamada (menos o healthcheck) exige um usuario logado (Supabase Auth) E
-// aprovado (status='approved', ver lib/supabaseAuth.js e a tela "Usuarios") — quem esta "pending"
-// (acabou de se cadastrar, esperando ela aprovar) nao le nem grava nada aqui. Alem disso, GRAVAR (POST:
-// set/delete/add) exige que o papel seja "planejador" — "visualizador" so consegue ler (GET).
+// aprovado NAQUELA OBRA (status='approved', ver lib/supabaseAuth.js e a tela "Usuarios") — quem esta
+// "pending" (acabou de pedir acesso aquela obra, esperando um planejador dela aprovar) nao le nem
+// grava nada aqui. Alem disso, GRAVAR (POST: set/delete/add) exige que o papel NAQUELA OBRA seja
+// "planejador" — "visualizador" so consegue ler (GET).
 import { supabaseAdmin, getAuthedUser, getUserRoleStatus } from '../lib/supabaseAuth.js';
+
+// "obras/<id>/resto/do/caminho" -> "<id>" (ou null se o path nao seguir esse formato).
+function obraIdFromPath(path){
+  const m = /^obras\/([^/]+)\//.exec(path || '');
+  return m ? m[1] : null;
+}
 
 export default async function handler(req, res) {
   try {
@@ -37,8 +52,12 @@ export default async function handler(req, res) {
 
     const user = await getAuthedUser(req, supabase);
     if (!user) return res.status(401).json({ error: 'nao autenticado' });
-    const mine = await getUserRoleStatus(supabase, user.id, user.email);
-    if (mine.status !== 'approved') return res.status(403).json({ error: 'conta aguardando aprovacao', status: mine.status });
+
+    const pathParaObra = req.method === 'POST' ? (req.body || {}).path : req.query.path;
+    const obraId = obraIdFromPath(pathParaObra);
+    if (!obraId) return res.status(400).json({ error: 'path precisa comecar com "obras/<id>/"' });
+    const mine = await getUserRoleStatus(supabase, user.id, user.email, obraId);
+    if (mine.status !== 'approved') return res.status(403).json({ error: 'conta aguardando aprovacao nessa obra', status: mine.status });
 
     if (req.method === 'GET') {
       const { path, collection, orderBy, dir, limit } = req.query;
