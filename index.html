@@ -1316,6 +1316,20 @@ async function openUsersModal(){
     const j = await r.json();
     if(!r.ok) throw new Error(j.error||'falha');
   }
+  // exclusão (2026-09-17, pedido dela: "criar alguma coisa pra excluir usuários, permissão pra
+  // planejador") — bloqueia a pessoa de vez: apaga o login dela no Supabase Auth E a linha em
+  // user_roles (ver api/role.js pro porquê da ordem). Só planejador vê o botão (a tela toda já é
+  // restrita a planejador); nunca aparece na própria linha de quem tá logado, pra ela não conseguir
+  // se auto-excluir por engano.
+  async function excludeUser(email){
+    const r = await fetch('/api/role', {method:'DELETE', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({email})});
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error||'falha');
+  }
+  function rowActionsHtml(u){
+    if(u.email===(CURRENT_USER && CURRENT_USER.email)) return '';
+    return `<button class="btn btn-sm" data-excluir="${u.email}" title="Bloqueia o acesso dela por completo — apaga o login, não só o papel">Excluir</button>`;
+  }
   function paint(){
     const pendentes = users.filter(u=>u.status!=='approved');
     const aprovados = users.filter(u=>u.status==='approved');
@@ -1328,7 +1342,10 @@ async function openUsersModal(){
           ${pendentes.map(u=>`
             <div class="list-row">
               <div>${u.email} <span class="badge badge-warn">pendente</span></div>
-              <button class="btn btn-sm btn-primary" data-aprovar="${u.email}">Aprovar</button>
+              <div style="display:flex; gap:6px;">
+                <button class="btn btn-sm btn-primary" data-aprovar="${u.email}">Aprovar</button>
+                ${rowActionsHtml(u)}
+              </div>
             </div>`).join('')}
         </div>
       ` : ''}
@@ -1337,10 +1354,13 @@ async function openUsersModal(){
         ${aprovados.length ? aprovados.map(u=>`
           <div class="list-row">
             <div>${u.email}${u.email===(CURRENT_USER && CURRENT_USER.email) ? ' <span class="badge badge-accent">você</span>' : ''}</div>
-            <select class="inline" data-userrole="${u.email}" ${u.email===(CURRENT_USER && CURRENT_USER.email)?'disabled':''}>
-              <option value="visualizador" ${u.role==='visualizador'?'selected':''}>Visualizador</option>
-              <option value="planejador" ${u.role==='planejador'?'selected':''}>Planejador</option>
-            </select>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <select class="inline" data-userrole="${u.email}" ${u.email===(CURRENT_USER && CURRENT_USER.email)?'disabled':''}>
+                <option value="visualizador" ${u.role==='visualizador'?'selected':''}>Visualizador</option>
+                <option value="planejador" ${u.role==='planejador'?'selected':''}>Planejador</option>
+              </select>
+              ${rowActionsHtml(u)}
+            </div>
           </div>`).join('') : '<p class="empty-note">Ninguém aprovado ainda.</p>'}
       </div>
       <div class="modal-actions"><button class="btn btn-primary" id="usersFechar">Concluído</button></div>
@@ -1365,6 +1385,23 @@ async function openUsersModal(){
           const u = users.find(x=>x.email===email); if(u) u.role = role;
           toast('Papel de '+email+' atualizado pra '+role+'.');
         }catch(e){ toast('Falha ao atualizar: '+(e && e.message?e.message:e), 'err'); paint(); }
+      };
+    });
+    document.querySelectorAll('[data-excluir]').forEach(btn=>{
+      btn.onclick = async ()=>{
+        const email = btn.dataset.excluir;
+        const ok = await confirmModal({
+          title: 'Excluir '+email+'?',
+          body: 'Isso apaga o login dela por completo — ela não consegue mais entrar com a senha antiga. Se tentar de novo, precisa criar uma conta nova (e cai como pendente, esperando aprovação de novo).',
+          confirmLabel: 'Excluir', danger: true
+        });
+        if(!ok) return;
+        try{
+          await excludeUser(email);
+          users = users.filter(u=>u.email!==email);
+          toast(email+' excluído(a).');
+          paint();
+        }catch(e){ toast('Falha ao excluir: '+(e && e.message?e.message:e), 'err'); }
       };
     });
     document.getElementById('usersFechar').onclick = closeModal;

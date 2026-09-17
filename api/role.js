@@ -1,6 +1,11 @@
 // api/role.js — GET devolve o papel (role) e status (pending/approved) de quem esta logado; com
 // ?list=true (so planejador) devolve todo mundo cadastrado, pra tela "Usuarios". POST (so planejador)
-// muda o papel e/ou status de alguem pelo e-mail (aprovar, promover, rebaixar).
+// muda o papel e/ou status de alguem pelo e-mail (aprovar, promover, rebaixar). DELETE (so planejador,
+// 2026-09-17, pedido dela: "criar alguma coisa pra excluir usuarios") bloqueia alguem de vez - apaga o
+// login dela no Supabase Auth (auth.admin.deleteUser) e a linha em user_roles, nessa ordem. Se so a
+// linha fosse apagada, getUserRoleStatus recriaria ela como "visualizador"/"pending" na proxima vez
+// que ela logasse com a senha antiga (o login em si continuaria valido) - por isso o Auth precisa ir
+// primeiro; so remove a linha depois que o Auth confirma que apagou.
 import { supabaseAdmin, getAuthedUser, getUserRoleStatus } from '../lib/supabaseAuth.js';
 
 export default async function handler(req, res) {
@@ -33,6 +38,20 @@ export default async function handler(req, res) {
       if (status) patch.status = status;
       const { error } = await admin.from('user_roles').update(patch).eq('email', email);
       if (error) throw error;
+      return res.status(200).json({ ok: true });
+    }
+
+    if (req.method === 'DELETE') {
+      if (mine.role !== 'planejador') return res.status(403).json({ error: 'sem permissao' });
+      const { email } = req.body || {};
+      if (!email) return res.status(400).json({ error: 'e-mail obrigatorio' });
+      if (email === user.email) return res.status(400).json({ error: 'voce nao pode excluir sua propria conta' });
+      const { data: existing } = await admin.from('user_roles').select('user_id').eq('email', email).maybeSingle();
+      if (!existing) return res.status(404).json({ error: 'essa pessoa nao esta cadastrada' });
+      const { error: authError } = await admin.auth.admin.deleteUser(existing.user_id);
+      if (authError) throw authError;
+      const { error: rowError } = await admin.from('user_roles').delete().eq('email', email);
+      if (rowError) throw rowError;
       return res.status(200).json({ ok: true });
     }
 
