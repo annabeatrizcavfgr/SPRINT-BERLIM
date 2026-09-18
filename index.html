@@ -2243,7 +2243,7 @@ function refDateFromCell(v, colType){
 function pickMesModal(){
   return new Promise(resolve=>{
     if(!MESES.length){
-      toast('Configure ao menos um "mês" em 📅 Gerenciar meses antes de enviar os serviços do pacote.', 'warn');
+      toast('Configure ao menos um "mês" em 🗑️ Gerenciar planilhas enviadas antes de enviar os serviços do pacote.', 'warn');
       resolve(null);
       return;
     }
@@ -2721,6 +2721,20 @@ function baselineFimForPacote(pacoteIdx, respFiltro){
     .map(r=>r.baseFim).filter(v=>v!=null && v>=0);
   return valid.length ? Math.max(...valid) : null;
 }
+// "ritmo máximo (linha de base)" (2026-09-18, pedido dela) — não é uma média: é a semana MAIS
+// carregada do cronograma original, quantas casas a linha de base concentra numa mesma semana pra
+// esse pacote. Serve pra calibrar se o ritmo médio atual (ver projection/vel) está condizente com o
+// pico que o próprio planejamento original já previa, ou se nem no pico planejado dava pra bater.
+function ritmoMaximoBase(pacoteIdx, respFiltro){
+  const rs = rowsForPacote(pacoteIdx).filter(r=> respFiltro==null || respFiltro.includes(r.respIdx));
+  const porSemana = new Map();
+  rs.forEach(r=>{
+    if(r.baseFim==null || r.baseFim<0) return;
+    const w = weekOfOrd(r.baseFim);
+    porSemana.set(w, (porSemana.get(w)||0)+1);
+  });
+  return porSemana.size ? Math.max(...porSemana.values()) : 0;
+}
 // tendência do ritmo: compara a 2ª metade das semanas do recorte com a 1ª metade
 function trendFromSeries(series){
   if(series.length<2) return {dir:'flat', pct:0};
@@ -2763,7 +2777,8 @@ function projection(pacoteIdx, respFiltro){
   let dataConclusao = null;
   if(!concluido && vel>0){ const weeksNeeded = restante/vel; dataConclusao = weekOfOrd(TODAY_ORD + Math.round(weeksNeeded*7)); }
   const baselineFim = baselineFimForPacote(pacoteIdx, respFiltro);
-  return { vel, restante, casasFimMes, dataConclusao, trend, baselineFim, concluido };
+  const ritmoMaxBase = ritmoMaximoBase(pacoteIdx, respFiltro);
+  return { vel, restante, casasFimMes, dataConclusao, trend, baselineFim, concluido, ritmoMaxBase };
 }
 function estruturalCheck(pacoteIdx){
   const rs = rowsForPacote(pacoteIdx);
@@ -3993,7 +4008,6 @@ function renderGeral(){
           <h2 class="section-title" style="margin:0;">Pacotes de trabalho</h2>
           <span class="footer-note" style="padding:0;">(${visible.length} de ${ranking.length})</span>
           <span style="flex:1"></span>
-          <button class="btn btn-sm" id="btnMeses">📅 Gerenciar meses</button>
           <button class="btn btn-sm" id="btnPacotes" title="Escolher quais pacotes aparecem e em que ordem">☰↕ Pacotes</button>
           <select class="inline" id="sortMode">${Object.keys(SORT_LABELS).map(k=>`<option value="${k}" ${k===SORT_MODE?'selected':''}>${SORT_LABELS[k]}</option>`).join('')}</select>
         </div>
@@ -4037,7 +4051,6 @@ function renderGeral(){
       ${MESES.length ? MESES.map(m=>`<option value="${m.id}" ${mes&&mes.id===m.id?'selected':''}>${m.label} (${m.weekOrds.length} sem.)</option>`).join('') : '<option value="">Nenhum configurado</option>'}
     </select>`;
   document.getElementById('btnPacotes').onclick = openPacotesModal;
-  document.getElementById('btnMeses').onclick = openMesesModal;
   document.getElementById('mesSelect').addEventListener('change', e=>{
     SELECTED_MES_ID = e.target.value || null; saveUiPrefs();
     paintTable(document.getElementById('pkgSearch').value);
@@ -4184,7 +4197,7 @@ function renderPainelGerencial(){
       ${screenTabsHtml()}
       <details class="card" id="painelTableCard" style="margin-bottom:14px;" ${PAINEL_TABLE_OPEN?'open':''}>
         <summary>Painel gerencial <span class="chev">▸</span></summary>
-        <p class="empty-note">Configure um mês em "📅 Gerenciar meses" (na tela Sprint - Acompanhamento de metas) pra ver o acompanhamento semanal de todos os pacotes aqui.</p>
+        <p class="empty-note">Configure um mês em "🗑️ Gerenciar planilhas enviadas" pra ver o acompanhamento semanal de todos os pacotes aqui.</p>
       </details>
       ${mapaCardHtml(ranking, 'side')}
       ${quadraDetailsHtml()}
@@ -4224,7 +4237,6 @@ function renderPainelGerencial(){
               ${LOOKUPS.responsaveis[i]}
             </label>`).join('')}
         </div>
-        <button class="btn btn-sm" id="btnMesesP">📅 Gerenciar meses</button>
         <button class="btn btn-sm" id="btnPacotesP" title="Escolher quais pacotes aparecem e em que ordem">☰↕ Pacotes</button>
         <button class="btn btn-sm" id="btnColunasP">Colunas</button>
         <select class="inline" id="sortModeP">${Object.keys(SORT_LABELS).map(k=>`<option value="${k}" ${k===SORT_MODE?'selected':''}>${SORT_LABELS[k]}</option>`).join('')}</select>
@@ -4256,6 +4268,7 @@ function renderPainelGerencial(){
             real: `<td class="num-cell mono">${pResp.casasRealizado}</td>`,
             idp: `<td class="num-cell mono" style="color:${tierColor(pResp.aderenciaContrato)}; font-weight:700;">${idpFmt(pResp.aderenciaContrato)}</td>`,
             ritmo: `<td class="num-cell mono">${proj.vel>0?Math.ceil(proj.vel):0}/sem</td>`,
+            ritmoMaxBase: `<td class="num-cell mono">${proj.ritmoMaxBase}/sem</td>`,
             terminoEstimado: proj.concluido
               ? `<td class="num-cell mono" style="color:var(--good); font-weight:700;">Concluído</td>`
               : `<td class="num-cell mono" style="${(proj.dataConclusao!=null && proj.baselineFim!=null && proj.dataConclusao>proj.baselineFim)?'color:var(--critical); font-weight:700;':''}">${proj.dataConclusao!=null?fmtDate(proj.dataConclusao):'—'}</td>`,
@@ -4303,7 +4316,6 @@ function renderPainelGerencial(){
   wireQuadraDetails();
   wireCausasAnalise();
   document.getElementById('btnPacotesP').onclick = openPacotesModal;
-  document.getElementById('btnMesesP').onclick = openMesesModal;
   document.getElementById('btnColunasP').onclick = openColunasModal;
   document.querySelectorAll('#painelRespFiltroP [data-respcheck]').forEach(cb=>{
     cb.onchange = ()=>{
@@ -4347,7 +4359,7 @@ function renderExpandedPanel(p){
   <div class="expand-panel">
     <div class="card" style="margin-bottom:14px;">
       <h3 class="section-title">Por coordenador ${mes?'— '+mes.label:''}</h3>
-      ${coordData ? renderCoordCards(coordData) : '<p class="empty-note">Configure um mês em "📅 Gerenciar meses" pra ver a quebra semana a semana por coordenador.</p>'}
+      ${coordData ? renderCoordCards(coordData) : '<p class="empty-note">Configure um mês em "🗑️ Gerenciar planilhas enviadas" pra ver a quebra semana a semana por coordenador.</p>'}
     </div>
 
     <div class="card" style="margin-bottom:14px;">
@@ -4581,6 +4593,7 @@ const PAINEL_COL_DEFS = [
   {id:'real', label:'Real. acum.', desc:'Casas efetivamente concluídas até esta semana.'},
   {id:'idp', label:'IDP', desc:'Índice de Desempenho de Prazo = Realizado acumulado ÷ Base acumulada. Abaixo de 1 indica atraso em relação à linha de base.'},
   {id:'ritmo', label:'Ritmo médio', desc:'Média de casas concluídas por semana nas últimas 8 semanas com dados.'},
+  {id:'ritmoMaxBase', label:'Ritmo máximo (linha de base)', desc:'A maior quantidade de casas que a Linha de base prevê entregar numa mesma semana, pra esse pacote — a semana mais carregada do planejamento original, não uma média.'},
   {id:'terminoEstimado', label:'Término estimado', desc:'Data prevista de conclusão do pacote no ritmo atual (sempre uma sexta-feira). "Concluído" quando não resta nenhuma casa.'},
   {id:'terminoBase', label:'Término linha de base', desc:'Data de término segundo a Linha de base.'},
 ];
@@ -4616,67 +4629,9 @@ function openColunasModal(){
   document.getElementById('colunasFechar').onclick = closeModal;
 }
 
-function openMesesModal(){
-  function paint(){
-    const weeks = allFridaysForMesesModal();
-    const jaUsadas = new Set(MESES.flatMap(m=>m.weekOrds));
-    const prevMesesList = document.getElementById('mesesList');
-    const mesesScrollTop = prevMesesList ? prevMesesList.scrollTop : 0;
-    const prevWeeksList = document.getElementById('mesesWeeksList');
-    const weeksScrollTop = prevWeeksList ? prevWeeksList.scrollTop : 0;
-    openModal(`
-      <h3>Meses de apresentação</h3>
-      <p>Defina quais semanas (sexta-feira final) compõem o "mês vigente" de vocês — pode não bater com o mês do calendário.</p>
-      <div id="mesesList" style="max-height:180px; overflow-y:auto; margin-bottom:14px;">
-        ${MESES.length ? MESES.map(m=>`
-          <div class="causa-item" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-            <div><strong>${m.label}</strong><div class="pkg-meta">${m.weekOrds.length} semana(s): ${m.weekOrds.map(fmtDateShort).join(', ')}</div></div>
-            <button class="btn btn-sm" data-delmes="${m.id}">Excluir</button>
-          </div>`).join('') : '<p class="empty-note">Nenhum mês configurado ainda.</p>'}
-      </div>
-      <div class="form-field"><label>Novo mês — rótulo</label><input id="novoMesLabel" placeholder="Ex: Setembro/2026"></div>
-      <div class="form-field">
-        <label>Semanas que compõem esse mês</label>
-        <div id="mesesWeeksList" style="max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px;">
-          ${weeks.length ? weeks.map(w=>`
-            <label style="display:flex; gap:8px; align-items:center; padding:6px 2px; border-bottom:1px solid var(--border);">
-              <input type="checkbox" data-weekcheck="${w}">
-              <span class="mono">Semana de ${fmtDate(w)}</span>
-              ${jaUsadas.has(w)?'<span class="badge badge-neutral" style="margin-left:auto;">já usada em outro mês</span>':''}
-            </label>`).join('') : '<p class="empty-note">Envie ao menos uma planilha pra ter semanas disponíveis.</p>'}
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn" id="mesFechar">Fechar</button>
-        <button class="btn btn-primary" id="mesSalvar">Salvar novo mês</button>
-      </div>
-    `);
-    document.getElementById('mesesList').scrollTop = mesesScrollTop;
-    document.getElementById('mesesWeeksList').scrollTop = weeksScrollTop;
-    document.querySelectorAll('[data-delmes]').forEach(b=>{
-      b.onclick = async ()=>{
-        MESES = MESES.filter(m=>m.id!==b.dataset.delmes);
-        if(SELECTED_MES_ID===b.dataset.delmes){ SELECTED_MES_ID=null; saveUiPrefs(); }
-        await saveMeses();
-        render(); paint();
-      };
-    });
-    document.getElementById('mesSalvar').onclick = async ()=>{
-      const label = document.getElementById('novoMesLabel').value.trim();
-      const checked = [...document.querySelectorAll('[data-weekcheck]:checked')].map(cb=>parseInt(cb.dataset.weekcheck,10)).sort((a,b)=>a-b);
-      if(!label){ toast('Dê um nome pro mês.', 'warn'); return; }
-      if(!checked.length){ toast('Selecione ao menos uma semana.', 'warn'); return; }
-      const id = 'mes_'+Date.now();
-      MESES.push({id, label, weekOrds:checked});
-      MESES.sort((a,b)=>a.weekOrds[0]-b.weekOrds[0]);
-      SELECTED_MES_ID = id; saveUiPrefs();
-      await saveMeses();
-      render(); paint();
-    };
-    document.getElementById('mesFechar').onclick = closeModal;
-  }
-  paint();
-}
+// "Meses de apresentação" (openMesesModal) — removido em 2026-09-18, virou uma seção dentro de
+// "Gerenciar planilhas enviadas" (openSnapshotsModal, ver logo abaixo), pedido dela: "leve o
+// gerenciar meses pra dentro de gerenciar planilhas enviadas, assim concentramos tudo lá dentro".
 
 
 function snapshotRowHtml(s, delAttr, isMetas){
@@ -4698,10 +4653,20 @@ function openSnapshotsModal(){
   function paint(){
     const semanais = SNAPSHOTS_META.slice().sort((a,b)=> a.dateRef<b.dateRef?1:-1);
     const metas = METAS_META.slice().sort((a,b)=> a.dateRef<b.dateRef?1:-1);
+    // "Meses de apresentação" (2026-09-18, pedido dela: "leve o gerenciar meses pra dentro de
+    // gerenciar planilhas enviadas, assim concentramos tudo lá dentro") — antes era um modal próprio
+    // (openMesesModal, removido), aberto por um botão dedicado no topbar de cada tela; agora é só
+    // mais uma seção aqui, mesmo padrão visual das outras (semanais/metas/serviços).
+    const mesesWeeks = allFridaysForMesesModal();
+    const mesesJaUsadas = new Set(MESES.flatMap(m=>m.weekOrds));
     const prevSemanaisList = document.getElementById('snapSemanaisList');
     const semanaisScrollTop = prevSemanaisList ? prevSemanaisList.scrollTop : 0;
     const prevMetasList = document.getElementById('snapMetasList');
     const metasScrollTop = prevMetasList ? prevMetasList.scrollTop : 0;
+    const prevMesesList = document.getElementById('mesesList');
+    const mesesScrollTop = prevMesesList ? prevMesesList.scrollTop : 0;
+    const prevWeeksList = document.getElementById('mesesWeeksList');
+    const weeksScrollTop = prevWeeksList ? prevWeeksList.scrollTop : 0;
     openModal(`
       <h3>Gerenciar planilhas enviadas</h3>
       <p>Exclua planilhas enviadas por engano ou com a semana errada — não dá pra desfazer.</p>
@@ -4725,10 +4690,56 @@ function openSnapshotsModal(){
           <button class="btn btn-sm" id="delServicos">Excluir</button>
         </div>` : '<p class="empty-note">Nenhuma planilha de serviços enviada ainda.</p>'}
       </div>
-      <div class="modal-actions"><button class="btn btn-primary" id="snapFechar">Fechar</button></div>
+      <h4 style="margin:16px 0 6px 0; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em;">Meses de apresentação</h4>
+      <p class="pkg-meta" style="margin:0 0 8px 0;">Defina quais semanas (sexta-feira final) compõem o "mês vigente" de vocês — pode não bater com o mês do calendário.</p>
+      <div id="mesesList" style="max-height:180px; overflow-y:auto; margin-bottom:14px;">
+        ${MESES.length ? MESES.map(m=>`
+          <div class="causa-item" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <div><strong>${m.label}</strong><div class="pkg-meta">${m.weekOrds.length} semana(s): ${m.weekOrds.map(fmtDateShort).join(', ')}</div></div>
+            <button class="btn btn-sm" data-delmes="${m.id}">Excluir</button>
+          </div>`).join('') : '<p class="empty-note">Nenhum mês configurado ainda.</p>'}
+      </div>
+      <div class="form-field"><label>Novo mês — rótulo</label><input id="novoMesLabel" placeholder="Ex: Setembro/2026"></div>
+      <div class="form-field">
+        <label>Semanas que compõem esse mês</label>
+        <div id="mesesWeeksList" style="max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px;">
+          ${mesesWeeks.length ? mesesWeeks.map(w=>`
+            <label style="display:flex; gap:8px; align-items:center; padding:6px 2px; border-bottom:1px solid var(--border);">
+              <input type="checkbox" data-weekcheck="${w}">
+              <span class="mono">Semana de ${fmtDate(w)}</span>
+              ${mesesJaUsadas.has(w)?'<span class="badge badge-neutral" style="margin-left:auto;">já usada em outro mês</span>':''}
+            </label>`).join('') : '<p class="empty-note">Envie ao menos uma planilha pra ter semanas disponíveis.</p>'}
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="mesSalvar">Salvar novo mês</button>
+        <button class="btn btn-primary" id="snapFechar">Fechar</button>
+      </div>
     `);
     document.getElementById('snapSemanaisList').scrollTop = semanaisScrollTop;
     document.getElementById('snapMetasList').scrollTop = metasScrollTop;
+    document.getElementById('mesesList').scrollTop = mesesScrollTop;
+    document.getElementById('mesesWeeksList').scrollTop = weeksScrollTop;
+    document.querySelectorAll('[data-delmes]').forEach(b=>{
+      b.onclick = async ()=>{
+        MESES = MESES.filter(m=>m.id!==b.dataset.delmes);
+        if(SELECTED_MES_ID===b.dataset.delmes){ SELECTED_MES_ID=null; saveUiPrefs(); }
+        await saveMeses();
+        render(); paint();
+      };
+    });
+    document.getElementById('mesSalvar').onclick = async ()=>{
+      const label = document.getElementById('novoMesLabel').value.trim();
+      const checked = [...document.querySelectorAll('[data-weekcheck]:checked')].map(cb=>parseInt(cb.dataset.weekcheck,10)).sort((a,b)=>a-b);
+      if(!label){ toast('Dê um nome pro mês.', 'warn'); return; }
+      if(!checked.length){ toast('Selecione ao menos uma semana.', 'warn'); return; }
+      const id = 'mes_'+Date.now();
+      MESES.push({id, label, weekOrds:checked});
+      MESES.sort((a,b)=>a.weekOrds[0]-b.weekOrds[0]);
+      SELECTED_MES_ID = id; saveUiPrefs();
+      await saveMeses();
+      render(); paint();
+    };
     const delServicosBtn = document.getElementById('delServicos');
     if(delServicosBtn) delServicosBtn.onclick = async ()=>{
       const ok = await confirmModal({
