@@ -717,8 +717,10 @@ let CAUSAS_FILTRO_PACOTES = null;
 let CAUSAS_FILTRO_PERIODOS = null; // array de 'year:2026' / 'month:2026-08'
 // salva TODAS as preferências compartilhadas acima num doc só (meta/uiPrefs) — chamada (sem esperar,
 // tipo "fire and forget") toda vez que qualquer uma delas muda, pra quem mais abrir o link ver a
-// mesma coisa que ela deixou configurada. QUADRA_OPEN e a semana em vista (jb_view_date_ref) ficam de
-// fora de propósito — são estado de navegação por pessoa, não "configuração" no sentido que ela pediu.
+// mesma coisa que ela deixou configurada. QUADRA_OPEN fica de fora de propósito — é estado de
+// navegação por pessoa, não "configuração" no sentido que ela pediu. A semana em vista (VIEW_DATE_REF)
+// nem tem preferência salva nenhuma (nem por navegador, nem compartilhada) — sempre abre na mais
+// recente importada (2026-09-23, pedido dela), ver initDb/loadSnapshotIntoView.
 async function saveUiPrefs(){
   if(!db) return;
   try{
@@ -1799,10 +1801,11 @@ async function initDb(){
       EXAMPLE_MODE = false;
       const snapDocs = await Promise.all(STATE_DOC.dateRefs.map(dr=>db.doc('snapshots/'+dr).get()));
       SNAPSHOTS_META = snapDocs.filter(s=>s.exists).map(s=>s.data()).sort((a,b)=>a.dateRef<b.dateRef?-1:1);
-      // reabre na mesma semana de antes, se ela ainda existir — senão cai na mais recente
-      const prefRef = lsGet('jb_view_date_ref', null);
-      const startRef = (prefRef && STATE_DOC.dateRefs.includes(prefRef)) ? prefRef : STATE_DOC.latest;
-      await loadSnapshotIntoView(startRef);
+      // sempre abre na semana mais recente importada (2026-09-23, pedido dela) — antes lembrava a
+      // última semana que a pessoa tinha VISTO (por navegador, via localStorage), o que podia deixar
+      // alguém "preso" numa semana antiga sem perceber; agora é sempre a mais nova, todo mundo que
+      // acessa vê o mesmo ponto de partida.
+      await loadSnapshotIntoView(STATE_DOC.latest);
       await loadCausas();
       if(!mz.exists) MESES = []; // sem exemplo fora do modo demo — fica vazio até ela configurar
     }
@@ -1997,7 +2000,6 @@ async function loadSnapshotIntoView(dateRef){
   const rows = await readSnapshotRows(dateRef);
   if(rows){
     ROWS = rows; VIEW_DATE_REF = dateRef; TODAY_ORD = ordFromIso(dateRef); EXAMPLE_MODE = false;
-    lsSet('jb_view_date_ref', dateRef); // lembra a semana escolhida entre sessões
     applyMetasOverride();
   }
 }
@@ -2508,7 +2510,6 @@ async function handleWorkbook(file, kind){
     VIEW_DATE_REF = dateRef;
     TODAY_ORD = ordFromIso(dateRef);
     EXAMPLE_MODE = false;
-    lsSet('jb_view_date_ref', dateRef); // lembra a semana escolhida entre sessões
     populateWeekPicker();
   }
   applyMetasOverride();
@@ -3274,8 +3275,15 @@ function respWeeklyBreakdown(pacoteIdx, weekOrds){
     })),
   })).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
 }
-function causasForPacote(pacoteIdx){
-  return CAUSAS.filter(c=>c.pacoteIdx===pacoteIdx).sort((a,b)=> (b.ts||'').localeCompare(a.ts||''));
+// "weekOrds" (2026-09-23, pedido dela: "as causas registradas estão ficando poluídas [...] seria bom
+// sempre deixar somente do mês vigente") — antes mostrava TODA causa já registrada pro pacote, desde
+// sempre; agora só as do recorte de semanas passado (normalmente mes.weekOrds, o mês selecionado).
+// Sem recorte nenhum (nenhum mês configurado ainda), cai nas últimas 8 semanas em vez de mostrar tudo
+// — mesmo fallback já usado em outros lugares do app quando não há "mês" selecionado.
+function causasForPacote(pacoteIdx, weekOrds){
+  const validOrds = weekOrds || Array.from({length:8}, (_,i)=> weekOfOrd(TODAY_ORD - i*7));
+  return CAUSAS.filter(c=>c.pacoteIdx===pacoteIdx && c.weekOrd!=null && validOrds.includes(c.weekOrd))
+    .sort((a,b)=> (b.ts||'').localeCompare(a.ts||''));
 }
 function causasFreq(pacoteIdx, periodDays){
   const cutoff = periodDays ? TODAY_ORD - periodDays : -Infinity;
@@ -4348,7 +4356,7 @@ function renderExpandedPanel(p){
   // cartões por coordenador seguem só as semanas do mês configurado no filtro — sem cair num
   // range genérico de 8 semanas quando não houver mês selecionado.
   const coordData = mes ? respWeeklyBreakdown(pacoteIdx, mes.weekOrds) : null;
-  const list = causasForPacote(pacoteIdx);
+  const list = causasForPacote(pacoteIdx, mes ? mes.weekOrds : null);
   const pc = periodCompare(pacoteIdx);
   const proj = projection(pacoteIdx);
   const resp = responsavelBreakdown(pacoteIdx);
@@ -4391,7 +4399,7 @@ function renderExpandedPanel(p){
       </div>
       <div class="pill-row">
         ${list.length ? list.map(c=>`
-          <span class="badge badge-critical" ${c.obs?`title="${c.obs.replace(/"/g,'&quot;')}"`:''}>${CAUSAS_LISTA[c.causaId]}${c.weekOrd!=null?' · '+fmtDateShort(c.weekOrd):''}<button type="button" class="badge-del" data-causa-id="${c.id}" title="Excluir esta causa" aria-label="Excluir causa registrada">✕</button></span>`).join('') : '<p class="empty-note">Nenhuma causa registrada ainda para este pacote.</p>'}
+          <span class="badge badge-critical" ${c.obs?`title="${c.obs.replace(/"/g,'&quot;')}"`:''}>${CAUSAS_LISTA[c.causaId]}${c.weekOrd!=null?' · '+fmtDateShort(c.weekOrd):''}<button type="button" class="badge-del" data-causa-id="${c.id}" title="Excluir esta causa" aria-label="Excluir causa registrada">✕</button></span>`).join('') : `<p class="empty-note">Nenhuma causa registrada ${mes?'em '+mes.label:'nas últimas semanas'} pra este pacote.</p>`}
       </div>
     </div>
 
