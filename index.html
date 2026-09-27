@@ -3023,10 +3023,17 @@ function wireQuadraDetails(){
 // pedido dela ("o filtro precisa ser ajustado por semana, por mês, por ano, e período total") — ano e
 // mês já existiam, "período total" já existia como o estado `null` (botão "Selecionar todos"/"Todos
 // os períodos"), só faltava semana.
-// opções de período geradas a partir de TODAS as semanas com dados no app (não só as com causa
-// registrada), pra o filtro continuar útil conforme mais causas forem cadastradas no futuro
+// opções de período geradas a partir das semanas com PLANILHA SEMANAL REALMENTE ENVIADA
+// (SNAPSHOTS_META), não mais allWeeksInData() (2026-09-27, pedido dela: "vamos deixar no filtro
+// somente os períodos que tem planilhas ativas, tipo, tem todas as semanas de 24, 25 e 26, mas nao
+// tenho planilha delas, se a pessoa for tentar, vai dar em branco"). allWeeksInData() usa o
+// `vigFim` (data prevista/realizada de conclusão) de cada linha casa×pacote da semana ATUALMENTE
+// carregada — e como essa data prevista se espalha pelo cronograma inteiro (2+ anos), ela oferecia
+// semanas/meses/anos onde nenhuma planilha jamais foi enviada, dando período vazio se selecionado.
+// SNAPSHOTS_META só tem exatamente as semanas com envio confirmado (ver "Gerenciar planilhas
+// enviadas"), então some da lista automaticamente se aquela planilha for excluída depois.
 function causasPeriodOptions(){
-  const weeks = allWeeksInData();
+  const weeks = SNAPSHOTS_META.map(s=>weekOfOrd(ordFromIso(s.dateRef)));
   const years = new Set(), months = new Set();
   weeks.forEach(w=>{
     years.add(ordToDate(w).getUTCFullYear());
