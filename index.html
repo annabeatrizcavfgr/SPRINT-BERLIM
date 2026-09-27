@@ -3016,9 +3016,13 @@ function wireQuadraDetails(){
   paintQuadraList();
 }
 // "Análise de causas de não cumprimento" — também no Painel gerencial, fim da tela: filtra por pacote
-// e por período (mês específico / ano inteiro / todos), sempre mostrando o Pareto dos maiores
-// problemas (por tipo de causa) dentro do recorte escolhido — ex.: "Cobertura, só agosto/26",
-// "Cobertura, o ano todo", ou "todos os pacotes, todos os anos".
+// e por período (semana específica / mês específico / ano inteiro / todos), sempre mostrando o
+// Pareto dos maiores problemas (por tipo de causa) dentro do recorte escolhido — ex.: "Cobertura, só
+// a semana de 18/09", "Cobertura, agosto/26", "Cobertura, o ano todo", ou "todos os pacotes, todos os
+// anos" (= sem filtro nenhum, "Todos os períodos"). Granularidade "semana" adicionada em 2026-09-27,
+// pedido dela ("o filtro precisa ser ajustado por semana, por mês, por ano, e período total") — ano e
+// mês já existiam, "período total" já existia como o estado `null` (botão "Selecionar todos"/"Todos
+// os períodos"), só faltava semana.
 // opções de período geradas a partir de TODAS as semanas com dados no app (não só as com causa
 // registrada), pra o filtro continuar útil conforme mais causas forem cadastradas no futuro
 function causasPeriodOptions(){
@@ -3028,14 +3032,16 @@ function causasPeriodOptions(){
     years.add(ordToDate(w).getUTCFullYear());
     months.add(monthKey(w));
   });
-  const yearOpts = [...years].sort((a,b)=>b-a).map(y=>({value:'year:'+y, label:y+' — ano inteiro'}));
-  const monthOpts = [...months].sort((a,b)=>b.localeCompare(a)).map(mk=>({value:'month:'+mk, label:monthLabel(mk)}));
-  return [...yearOpts, ...monthOpts];
+  const yearOpts = [...years].sort((a,b)=>b-a).map(y=>({value:'year:'+y, label:y+' — ano inteiro', grupo:'Ano'}));
+  const monthOpts = [...months].sort((a,b)=>b.localeCompare(a)).map(mk=>({value:'month:'+mk, label:monthLabel(mk), grupo:'Mês'}));
+  const weekOpts = weeks.slice().sort((a,b)=>b-a).map(w=>({value:'week:'+w, label:'Semana de '+fmtDate(w), grupo:'Semana'}));
+  return [...yearOpts, ...monthOpts, ...weekOpts];
 }
 function causaMatchesPeriodo(weekOrd, periodo){
   if(weekOrd==null) return false;
   if(periodo.startsWith('year:')) return ordToDate(weekOrd).getUTCFullYear()===parseInt(periodo.slice(5),10);
   if(periodo.startsWith('month:')) return monthKey(weekOrd)===periodo.slice(6);
+  if(periodo.startsWith('week:')) return weekOrd===parseInt(periodo.slice(5),10);
   return true;
 }
 function causasPacoteSummary(){
@@ -3181,13 +3187,15 @@ function openCausasPeriodoModal(){
     const scrollTop = prevList ? prevList.scrollTop : 0;
     openModal(`
       <h3>Filtrar causas por período</h3>
-      <p>Escolha um ou mais períodos (anos e/ou meses) — a análise combina todos os selecionados.</p>
+      <p>Escolha um ou mais períodos (anos, meses e/ou semanas específicas) — a análise combina todos
+      os selecionados. "Selecionar todos" = período total (sem filtro nenhum).</p>
       <div class="pill-row" style="margin-bottom:10px;">
-        <button class="btn btn-sm" id="cpdTodos">Selecionar todos</button>
+        <button class="btn btn-sm" id="cpdTodos">Selecionar todos (período total)</button>
         <button class="btn btn-sm" id="cpdNenhum">Limpar seleção</button>
       </div>
       <div id="cpdList" style="max-height:320px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px;">
-        ${opts.length ? opts.map(o=>`
+        ${opts.length ? opts.map((o,i)=>`
+          ${(i===0 || opts[i-1].grupo!==o.grupo) ? `<h4 style="margin:${i===0?'6px':'16px'} 0 6px 0; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em;">${o.grupo}</h4>` : ''}
           <label style="display:flex; align-items:center; gap:9px; padding:7px 2px; cursor:pointer; border-bottom:1px solid var(--border);">
             <input type="checkbox" data-cpd="${o.value}" ${(s==null || s.includes(o.value))?'checked':''}>
             <span>${o.label}</span>
@@ -3329,12 +3337,15 @@ function causasPorTipo(list){
   list.forEach(c=>{ const name = CAUSAS_LISTA[c.causaId]||'—'; freq.set(name, (freq.get(name)||0)+1); });
   return [...freq.entries()].map(([name,count])=>({name,count}));
 }
-// ordena desc por contagem e acumula % — o coração do gráfico de Pareto
+// ordena desc por contagem e acumula % — o coração do gráfico de Pareto. "pct" (2026-09-27, pedido
+// dela: "colocar percentual em cada um dos itens") é a fatia INDIVIDUAL daquele tipo de causa sobre o
+// total do recorte — diferente de "cumPct" (a linha vermelha), que é o acumulado andando da esquerda
+// pra direita.
 function paretoData(items){
   const sorted = items.slice().sort((a,b)=>b.count-a.count);
   const total = sorted.reduce((s,i)=>s+i.count,0);
   let running = 0;
-  return sorted.map(i=>{ running += i.count; return {...i, cumPct: total ? running/total : 0}; });
+  return sorted.map(i=>{ running += i.count; return {...i, pct: total ? i.count/total : 0, cumPct: total ? running/total : 0}; });
 }
 
 /* ===================================================================
@@ -3436,7 +3447,7 @@ function svgPareto(items){
     const y = padT + plotH - barH;
     const cy = padT + plotH - d.cumPct*plotH;
     bars += `<rect data-causa-nome="${nomeAttr}" x="${x}" y="${y}" width="${barW}" height="${Math.max(barH,0)}" rx="4" fill="var(--accent)">${titleTag}</rect>`;
-    tags += svgTag(cx, y, d.count, 'var(--accent)', '#fff');
+    tags += svgTag(cx, y, d.count+' · '+pctFmt(d.pct), 'var(--accent)', '#fff');
     linePts.push(`${cx},${cy}`);
     dots += `<circle data-causa-nome="${nomeAttr}" cx="${cx}" cy="${cy}" r="4" fill="var(--critical)">${titleTag}</circle>`;
     labels += `<text data-causa-nome="${nomeAttr}" x="0" y="0" transform="translate(${cx} ${h-padB+16}) rotate(-40)" text-anchor="end" class="chart-label" style="font-size:11.5px;">${truncateLabel(d.name,26)}${titleTag}</text>`;
