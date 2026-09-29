@@ -3610,23 +3610,13 @@ function wireMapaGlobalDrag(){
     if(wrap) wrap.classList.remove('dragging');
   });
 }
-function ensureMapaMounted(){
+// liga zoom/arrasto/tooltip no <svg> recém-montado (chamado depois de QUALQUER jeito de montar o
+// mapa — template fixo, mapa customizado síncrono, ou o fetch assíncrono do mapa temporário do
+// Frankfurt abaixo) — extraído de ensureMapaMounted pra poder rodar tanto no caminho síncrono quanto
+// depois que o fetch resolve.
+function wireMountedSvg(){
   const wrap = document.getElementById('mapaWrap');
-  if(!wrap) return;
-  if(wrap.querySelector('svg') || wrap.querySelector('.mapa-sem-svg')) return; // já montado (svg OU aviso de vazio)
-  // mapa próprio da obra (2026-09-17) tem prioridade; sem upload nenhum, Jardins Berlim cai no
-  // <template> fixo de sempre (ela pediu pra manter — "no berlim não vou precisar mudar"); qualquer
-  // OUTRA obra sem upload mostra um aviso em vez de herdar o mapa de Jardins Berlim por engano.
-  if(MAPA_SVG_CUSTOM){
-    wrap.innerHTML = MAPA_SVG_CUSTOM.svg;
-  } else if(CURRENT_OBRA_ID==='jardins-berlim'){
-    const tpl = document.getElementById('mapaSvgTemplate');
-    if(tpl) wrap.appendChild(tpl.content.cloneNode(true));
-  } else {
-    wrap.innerHTML = '<p class="empty-note mapa-sem-svg" style="padding:40px 16px;">Nenhum mapa enviado ainda pra essa obra — clique em "🗺️ Enviar mapa" pra subir o arquivo SVG.</p>';
-    return;
-  }
-  const svgEl = wrap.querySelector('svg');
+  const svgEl = wrap && wrap.querySelector('svg');
   if(!svgEl) return;
   // "meet" (contain) — o CSS do #mapaWrap agora casa a proporção do container com a do viewBox
   // (aspect-ratio:16/9, igual ao SVG), então "meet" preenche tudo sem cortar nada e sem sobrar faixa
@@ -3689,6 +3679,47 @@ function ensureMapaMounted(){
     }
   }, {passive:false});
   wrap.addEventListener('touchend', ()=>{ touchState = null; });
+}
+function ensureMapaMounted(){
+  const wrap = document.getElementById('mapaWrap');
+  if(!wrap) return;
+  // já montado (svg, aviso de vazio, OU o placeholder "carregando" do fetch abaixo ainda em voo)
+  if(wrap.querySelector('svg') || wrap.querySelector('.mapa-sem-svg') || wrap.querySelector('.mapa-loading')) return;
+  // mapa próprio da obra (2026-09-17) tem prioridade; sem upload nenhum, Jardins Berlim cai no
+  // <template> fixo de sempre (ela pediu pra manter — "no berlim não vou precisar mudar").
+  if(MAPA_SVG_CUSTOM){
+    wrap.innerHTML = MAPA_SVG_CUSTOM.svg;
+    wireMountedSvg();
+    return;
+  }
+  if(CURRENT_OBRA_ID==='jardins-berlim'){
+    const tpl = document.getElementById('mapaSvgTemplate');
+    if(tpl) wrap.appendChild(tpl.content.cloneNode(true));
+    wireMountedSvg();
+    return;
+  }
+  // mapa padrão TEMPORÁRIO do Jardins Frankfurt (2026-09-29) — o botão "🗺️ Enviar mapa" ficou com um
+  // bug (conteúdo interativo dentro de <summary>, ver mapaUploadControlsHtml) que impedia o upload
+  // funcionar; enquanto isso, ela me passou o SVG por fora (export do Synoptic Designer) e eu montei
+  // como arquivo estático (`frankfurt-map.svg`, na raiz do projeto — Vercel serve como estático
+  // automaticamente) carregado sob demanda só quando essa obra específica é aberta, pra não pesar no
+  // carregamento de quem usa outra obra. Assim que ela confirmar que o botão voltou a funcionar,
+  // `MAPA_SVG_CUSTOM` (que tem prioridade, ver acima) passa a vencer este bloco automaticamente — daí
+  // dá pra apagar este `else if` inteiro e o arquivo `frankfurt-map.svg`.
+  if(CURRENT_OBRA_ID==='jardins-frankfurt'){
+    wrap.innerHTML = '<p class="empty-note mapa-loading" style="padding:40px 16px;">Carregando mapa…</p>';
+    fetch('/frankfurt-map.svg').then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); }).then(svg=>{
+      if(document.getElementById('mapaWrap')!==wrap) return; // a tela já trocou enquanto carregava
+      wrap.innerHTML = svg;
+      wireMountedSvg();
+      paintMapa();
+    }).catch(e=>{
+      console.error('falha ao carregar frankfurt-map.svg', e);
+      if(document.getElementById('mapaWrap')===wrap) wrap.innerHTML = '<p class="empty-note" style="padding:40px 16px;">Falha ao carregar o mapa padrão.</p>';
+    });
+    return;
+  }
+  wrap.innerHTML = '<p class="empty-note mapa-sem-svg" style="padding:40px 16px;">Nenhum mapa enviado ainda pra essa obra — clique em "🗺️ Enviar mapa" pra subir o arquivo SVG.</p>';
 }
 // o mapa segue o pacote aberto na tabela (accordion); sem nada aberto, usa a escolha manual do seletor
 function effectiveMapaPacoteIdx(){ return EXPANDED_IDX!=null ? EXPANDED_IDX : MAPA_PACOTE_IDX; }
