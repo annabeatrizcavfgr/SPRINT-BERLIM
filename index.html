@@ -130,7 +130,7 @@ a{color:var(--accent);}
 .btn{
   appearance:none; border:1px solid var(--border); background:var(--surface);
   color:var(--text); border-radius:8px; padding:9px 14px; font-size:13px; font-weight:600;
-  display:inline-flex; align-items:center; gap:7px; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:7px; white-space:nowrap; cursor:pointer;
   transition:background .14s ease, border-color .14s ease, transform .1s ease, box-shadow .14s ease;
 }
 .btn:hover{border-color:var(--accent); box-shadow:var(--shadow);}
@@ -3851,12 +3851,21 @@ function mapaStatusSideHtml(entries){
 // uma limpada na tela" — antes ficava solto no topbar, que já tinha 5+ botões). Só planejador vê
 // (checado aqui, na hora de montar o HTML, não via updateAuthUi — esse card é remontado do zero a
 // cada render(), então esconder/mostrar via style.display depois não teria efeito duradouro).
+// os controles ficam dentro do <summary> do card (pra continuarem visíveis/clicáveis mesmo com o
+// card fechado) — por isso NÃO são <button> de verdade: um <button> (conteúdo interativo) dentro de
+// <summary> (que já tem papel implícito de botão/disclosure) é HTML inválido — "conteúdo interativo
+// dentro de conteúdo interativo" —, e isso deixava o clique de abrir o seletor de arquivo funcionando
+// de forma inconsistente entre navegadores (2026-09-29, achado depois dela reportar "o botão não
+// clica" só nesse upload especificamente — os outros uploads, no topbar, fora de qualquer <summary>,
+// sempre funcionaram normal). Trocado por <span role="button" tabindex="0"> — visualmente idêntico
+// (usa as mesmas classes .btn/.btn-sm) e funciona igual via onclick/keydown, mas sem violar o modelo
+// de conteúdo do <summary>.
 function mapaUploadControlsHtml(){
   if(MY_ROLE!=='planejador') return '';
   return `
     <span style="display:inline-flex; gap:6px; margin-left:auto;" onclick="event.preventDefault(); event.stopPropagation();">
-      <button type="button" class="btn btn-sm" id="btnUploadMapa" title="SVG do mapa da obra, com cada casa marcada (class=&quot;jb-casa&quot; data-key=&quot;quadra-casa&quot;)">🗺️ Enviar mapa</button>
-      ${MAPA_SVG_CUSTOM ? `<button type="button" class="btn btn-sm" id="btnDeleteMapa" title="Remove o mapa enviado">Excluir mapa</button>` : ''}
+      <span role="button" tabindex="0" class="btn btn-sm" id="btnUploadMapa" title="SVG do mapa da obra, com cada casa marcada (class=&quot;jb-casa&quot; data-key=&quot;quadra-casa&quot;)">🗺️ Enviar mapa</span>
+      ${MAPA_SVG_CUSTOM ? `<span role="button" tabindex="0" class="btn btn-sm" id="btnDeleteMapa" title="Remove o mapa enviado">Excluir mapa</span>` : ''}
       <input type="file" id="fileInputMapa" accept=".svg" hidden>
     </span>`;
 }
@@ -3933,9 +3942,16 @@ function wireMapaCard(){
   document.getElementById('mapaZoomOut').onclick = ()=> zoomMapaBy(1/1.4);
   document.getElementById('mapaZoomReset').onclick = ()=> resetMapaView();
   // "Enviar mapa"/"Excluir mapa" (2026-09-17) — só existem no DOM quando MY_ROLE==='planejador'
-  // (ver mapaUploadControlsHtml), por isso tudo aqui é condicional.
+  // (ver mapaUploadControlsHtml), por isso tudo aqui é condicional. São <span role="button"> (não
+  // <button> de verdade — ver comentário em mapaUploadControlsHtml), então precisam do próprio
+  // keydown pra Enter/Espaço ativarem, mesmo padrão já usado em quadra-row/pkg-row.
+  function keyActivate(el, fn){ el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }); }
   const btnUploadMapa = document.getElementById('btnUploadMapa');
-  if(btnUploadMapa) btnUploadMapa.onclick = ()=> document.getElementById('fileInputMapa').click();
+  if(btnUploadMapa){
+    const abrirSeletor = ()=> document.getElementById('fileInputMapa').click();
+    btnUploadMapa.onclick = abrirSeletor;
+    keyActivate(btnUploadMapa, abrirSeletor);
+  }
   const fileInputMapa = document.getElementById('fileInputMapa');
   if(fileInputMapa) fileInputMapa.addEventListener('change', async e=>{
     const file = e.target.files[0];
@@ -3945,23 +3961,27 @@ function wireMapaCard(){
     catch(err){ console.error(err); toast('Erro ao processar o arquivo: '+err.message, 'err'); }
   });
   const btnDeleteMapa = document.getElementById('btnDeleteMapa');
-  if(btnDeleteMapa) btnDeleteMapa.onclick = async ()=>{
-    const ok = await confirmModal({
-      title: 'Excluir mapa enviado?',
-      body: CURRENT_OBRA_ID==='jardins-berlim'
-        ? 'Isso remove o mapa enviado e volta a usar o mapa padrão de Jardins Berlim.'
-        : 'Isso remove o mapa enviado — a obra fica sem mapa até alguém enviar outro.',
-      confirmLabel: 'Excluir', danger: true
-    });
-    if(!ok) return;
-    const success = await deleteMapaSvg();
-    if(success){
-      const wrap = document.getElementById('mapaWrap');
-      if(wrap) wrap.innerHTML = '';
-      toast('Mapa excluído.');
-      render();
-    }
-  };
+  if(btnDeleteMapa){
+    const excluirMapa = async ()=>{
+      const ok = await confirmModal({
+        title: 'Excluir mapa enviado?',
+        body: CURRENT_OBRA_ID==='jardins-berlim'
+          ? 'Isso remove o mapa enviado e volta a usar o mapa padrão de Jardins Berlim.'
+          : 'Isso remove o mapa enviado — a obra fica sem mapa até alguém enviar outro.',
+        confirmLabel: 'Excluir', danger: true
+      });
+      if(!ok) return;
+      const success = await deleteMapaSvg();
+      if(success){
+        const wrap = document.getElementById('mapaWrap');
+        if(wrap) wrap.innerHTML = '';
+        toast('Mapa excluído.');
+        render();
+      }
+    };
+    btnDeleteMapa.onclick = excluirMapa;
+    keyActivate(btnDeleteMapa, excluirMapa);
+  }
   ensureMapaMounted();
   paintMapa();
   alignMapaStatusLabels();
