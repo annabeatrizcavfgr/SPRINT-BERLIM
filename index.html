@@ -731,6 +731,15 @@ let CAUSAS_FILTRO_PERIODOS = null; // array de 'year:2026' / 'month:2026-08'
 // recente importada (2026-09-23, pedido dela), ver initDb/loadSnapshotIntoView.
 async function saveUiPrefs(){
   if(!db) return;
+  // preferência de VISUALIZAÇÃO (ordem, filtro, sort, mês em vista, modo apresentação etc.) — chamada
+  // o tempo todo só de navegar (trocar "Ver só um pacote", ordenar, mudar de tela...), não é uma
+  // "edição" de verdade. Pra visualizador, ela funciona normalmente NA TELA DELE (as variáveis já
+  // mudaram antes desta chamada), só não fica salva pra outros verem depois — por isso sai calada
+  // aqui, ANTES de chegar em checkWritable() (que mostraria o aviso "você está como visualizador"),
+  // sem tentar gravar nada. 2026-09-30, achado por ela: "tá avisando que ele é visualizador e não
+  // pode mexer quando muda de pacote na tela do sprint. mas ele pode" — navegar não devia disparar
+  // nenhum aviso.
+  if(MY_ROLE!=='planejador') return;
   try{
     await db.doc('meta/uiPrefs').set({
       sortMode: SORT_MODE, selectedNames: SELECTED_NAMES, mapaPacoteIdx: MAPA_PACOTE_IDX,
@@ -1875,6 +1884,11 @@ async function saveMeses(){
 }
 async function saveQuadraFiltro(){
   if(!db){ toast('Sem armazenamento persistente nesta visualização — o filtro não foi salvo pra outros verem.', 'warn'); return; }
+  // mesmo motivo de saveUiPrefs logo acima: filtrar "Atrasos por quadra" funciona na hora pra
+  // qualquer um (a variável já mudou antes desta chamada), só não fica salvo pra outros verem depois
+  // se quem mexeu não for planejador — sem aviso nenhum, já que isso não é uma tentativa de edição,
+  // é só navegação/filtro de visualização.
+  if(MY_ROLE!=='planejador') return;
   await db.doc('meta/quadraFiltro').set({ pacotes: QUADRA_FILTRO_PACOTES });
 }
 // "Serviços do pacote" — bem menor que snapshots/metas (poucas dezenas de linhas, não milhares de
