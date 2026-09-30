@@ -2776,7 +2776,18 @@ function projection(pacoteIdx, respFiltro){
   // tela mostrar "Concluído" em vez de uma data.
   const concluido = restante<=0;
   let dataConclusao = null;
-  if(!concluido && vel>0){ const weeksNeeded = restante/vel; dataConclusao = weekOfOrd(TODAY_ORD + Math.round(weeksNeeded*7)); }
+  // a semana em vista (TODAY_ORD) já está CONCLUÍDA — ela só existe no app porque foi reportada
+  // DEPOIS de terminar (o ciclo de envio é sempre retroativo). Por isso "término estimado" nunca pode
+  // cair nessa mesma semana (ou antes): o mínimo possível é a semana seguinte. Sem esse piso, um
+  // pacote quase pronto (poucas casas restantes, ritmo alto) dava `weeksNeeded` arredondando pra 0 e
+  // "estimava" a conclusão bem na semana que já passou — parecendo atrasado/estranho mesmo pra um
+  // pacote em dia (2026-09-30, achado por ela: "quando eu subo a planilha, a semana de referência é
+  // concluída, então não podemos concluir que nada vai ser concluído dentro da semana de referência").
+  if(!concluido && vel>0){
+    const weeksNeeded = restante/vel;
+    const proximaSemana = TODAY_ORD + 7;
+    dataConclusao = Math.max(proximaSemana, weekOfOrd(TODAY_ORD + Math.round(weeksNeeded*7)));
+  }
   const baselineFim = baselineFimForPacote(pacoteIdx, respFiltro);
   const ritmoMaxBase = ritmoMaximoBase(pacoteIdx, respFiltro);
   return { vel, restante, casasFimMes, dataConclusao, trend, baselineFim, concluido, ritmoMaxBase };
