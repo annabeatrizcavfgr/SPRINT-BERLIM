@@ -680,6 +680,11 @@ let CAUSAS_FILTERED_LIST = []; // último recorte (pacote+período) usado no par
 let CAUSAS_SELECTED_NOME = null; // tipo de causa (nome) selecionado no pareto por clique; null = nenhuma lista de detalhe aberta
 let MAPA_PACOTE_IDX = null; // resolvido/validado a cada render (LOOKUPS pode não estar pronto ainda)
 let MAPA_VIEW = { scale:1, x:0, y:0 }; // pan/zoom do mapa — resetado sempre que o svg é remontado
+// giro do mapa em graus (0/90/180/270) — por obra, compartilhado, salvo em meta/uiPrefs igual as
+// outras preferências (2026-09-30, pedido dela: "eu preciso rotacionar ele quando eu quiser"). Fica
+// fora de MAPA_SVG_CUSTOM de propósito: continua valendo mesmo se ela trocar o mapa enviado depois, e
+// vale igual pro mapa padrão do Frankfurt (arquivo estático) ou pro template fixo do Berlim.
+let MAPA_ROTATION = 0;
 let CURRENT_SCREEN = 'home'; // 'home' | 'painel'
 let SELECTED_MES_ID = null; // qual "mês" (de MESES) esta pessoa está vendo
 let CUSTOM_ORDER = []; // nomes de pacote na ordem manual escolhida
@@ -730,7 +735,7 @@ async function saveUiPrefs(){
       painelHiddenCols: PAINEL_HIDDEN_COLS, focoPacoteIdx: FOCO_PACOTE_IDX,
       painelRespFiltro: PAINEL_RESP_FILTRO,
       presentationMode: PRESENTATION_MODE, causasFiltroPacotes: CAUSAS_FILTRO_PACOTES,
-      causasFiltroPeriodos: CAUSAS_FILTRO_PERIODOS,
+      causasFiltroPeriodos: CAUSAS_FILTRO_PERIODOS, mapaRotation: MAPA_ROTATION,
     });
   }catch(e){ console.error('saveUiPrefs failed', e); }
 }
@@ -1759,6 +1764,9 @@ async function initDb(){
   // enviado pela obra ANTERIOR na tela até alguém subir um novo pra essa obra, já que o `if(msvg.
   // exists)` abaixo só ATUALIZA a variável quando a obra atual TEM um mapa próprio, nunca limpa.
   MAPA_SVG_CUSTOM = null;
+  // mesmo motivo: sem isso, o giro que ela deixou salvo numa obra "vazava" pro mapa da obra seguinte
+  // até essa outra obra ter seu próprio giro salvo alguma vez.
+  MAPA_ROTATION = 0;
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -1807,6 +1815,7 @@ async function initDb(){
       if(d.presentationMode!=null) PRESENTATION_MODE = d.presentationMode;
       if(d.causasFiltroPacotes!==undefined) CAUSAS_FILTRO_PACOTES = d.causasFiltroPacotes;
       if(d.causasFiltroPeriodos!==undefined) CAUSAS_FILTRO_PERIODOS = d.causasFiltroPeriodos;
+      if(d.mapaRotation!=null) MAPA_ROTATION = d.mapaRotation;
       applyPresentationMode();
     }
     if(STATE_DOC.dateRefs.length){
@@ -3612,6 +3621,31 @@ function zoomMapaBy(factor, cx, cy){
   applyMapaTransform();
 }
 function touchDist(t1,t2){ return Math.hypot(t2.clientX-t1.clientX, t2.clientY-t1.clientY); }
+// gira o <svg> montado pro ângulo corrente de MAPA_ROTATION, recalculando o viewBox e envolvendo TODO
+// o conteúdo (imagem de fundo + casas) num <g transform="...">. Sempre parte do viewBox NATURAL do
+// arquivo (guardado em data-natural-viewbox na primeira vez que essa função roda pra esse <svg> —
+// antes de qualquer giro já aplicado), pra "girar de novo" a partir do original e nunca acumular giros
+// errados em cima de um viewBox que já tinha sido trocado por uma chamada anterior.
+function applyMapaRotationToSvg(svgEl){
+  if(!svgEl.dataset.naturalViewbox) svgEl.dataset.naturalViewbox = svgEl.getAttribute('viewBox');
+  const [,, nw, nh] = svgEl.dataset.naturalViewbox.split(' ').map(Number);
+  let group = svgEl.querySelector(':scope > g[data-mapa-rotate-group]');
+  if(!group){
+    // envolve o conteúdo atual (o que já estava lá, seja imagem+rects do upload/template/fetch) numa
+    // única vez — chamadas seguintes (troca de ângulo) só mexem no atributo transform desse grupo.
+    group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-mapa-rotate-group', '');
+    while(svgEl.firstChild) group.appendChild(svgEl.firstChild);
+    svgEl.appendChild(group);
+  }
+  const deg = ((MAPA_ROTATION%360)+360)%360;
+  let vbW=nw, vbH=nh, transform='';
+  if(deg===90){ vbW=nh; vbH=nw; transform = `translate(${nh},0) rotate(90)`; }
+  else if(deg===180){ transform = `translate(${nw},${nh}) rotate(180)`; }
+  else if(deg===270){ vbW=nh; vbH=nw; transform = `translate(0,${nw}) rotate(270)`; }
+  svgEl.setAttribute('viewBox', `0 0 ${vbW} ${vbH}`);
+  group.setAttribute('transform', transform);
+}
 // estado de arrasto do mapa — vive fora de ensureMapaMounted (que remonta o svg várias vezes na vida
 // da página) pra não empilhar um novo par de listeners em `window` a cada remontagem.
 let MAPA_DRAG = {active:false, x:0, y:0, moved:false};
@@ -3647,6 +3681,7 @@ function wireMountedSvg(){
   // da METADE do mapa de cada lado quando o card era mais estreito que 16:9 — corrigir a proporção do
   // container era o jeito certo, não recortar a imagem.)
   svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  applyMapaRotationToSvg(svgEl);
   // reaplica o pan/zoom que já estava em MAPA_VIEW (não reseta) — qualquer filtro/mês/ordenação muda
   // repinta a tela inteira (inclusive remontando esse SVG do zero), então resetar aqui jogava fora o
   // zoom/posição da pessoa a cada mudancinha. Só o botão ⟲ (resetMapaView) deve voltar ao zoom padrão.
@@ -3940,6 +3975,7 @@ function mapaCardHtml(ranking, layout, alwaysOpen){
         <button class="btn btn-sm" id="mapaZoomIn" title="Mais zoom">+</button>
         <button class="btn btn-sm" id="mapaZoomOut" title="Menos zoom">−</button>
         <button class="btn btn-sm" id="mapaZoomReset" title="Voltar ao início">⟲</button>
+        <button class="btn btn-sm" id="mapaRotateBtn" title="Girar mapa 90°">⟳</button>
       </div>
     </div>
     <p class="footer-note" style="padding:4px 0 0 0;">Arraste para navegar · roda do mouse ou os botões para zoom</p>`;
@@ -3995,6 +4031,17 @@ function wireMapaCard(){
   document.getElementById('mapaZoomIn').onclick = ()=> zoomMapaBy(1.4);
   document.getElementById('mapaZoomOut').onclick = ()=> zoomMapaBy(1/1.4);
   document.getElementById('mapaZoomReset').onclick = ()=> resetMapaView();
+  // gira o mapa 90° a cada clique (0→90→180→270→0), na hora — sem precisar reenviar nada (2026-09-30,
+  // pedido dela: "eu preciso rotacionar ele quando eu quiser"). Salva em meta/uiPrefs pra outra pessoa
+  // ver do mesmo jeito da próxima vez; se não for planejador, saveUiPrefs já falha calada (ver seu
+  // comentário) e o giro só vale nessa sessão dela mesma.
+  document.getElementById('mapaRotateBtn').onclick = ()=>{
+    MAPA_ROTATION = (MAPA_ROTATION + 90) % 360;
+    const svgEl = document.querySelector('#mapaWrap svg');
+    if(svgEl) applyMapaRotationToSvg(svgEl);
+    applyMapaTransform();
+    saveUiPrefs();
+  };
   // "Enviar mapa"/"Excluir mapa" (2026-09-17) — só existem no DOM quando MY_ROLE==='planejador'
   // (ver mapaUploadControlsHtml), por isso tudo aqui é condicional. São <span role="button"> (não
   // <button> de verdade — ver comentário em mapaUploadControlsHtml), então precisam do próprio
