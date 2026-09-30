@@ -1770,6 +1770,19 @@ async function initDb(){
   // mesmo motivo: sem isso, o giro que ela deixou salvo numa obra "vazava" pro mapa da obra seguinte
   // até essa outra obra ter seu próprio giro salvo alguma vez.
   MAPA_ROTATION = 0;
+  // MESMO PROBLEMA, só que pra TODO o resto de meta/uiPrefs + meta/quadraFiltro (2026-09-30, achado
+  // dela: "as bases de dados de ordenação de pacotes das duas obras estão se misturando" — ordem
+  // manual, filtro de pacotes selecionados, filtro de responsável, colunas ocultas, mês selecionado,
+  // filtros de causas, etc.). O bloco `if(up.exists){...}` abaixo só ATUALIZA cada campo quando o doc
+  // da obra atual EXISTE e TEM aquele campo — numa obra nova (como o Frankfurt, recém-criada, ainda
+  // sem nada salvo em meta/uiPrefs) nada era sobrescrito, e ela ficava vendo a ordem/filtro que a
+  // OUTRA obra tinha deixado configurado. Sempre volta pro default de cada variável antes de reler;
+  // se a obra atual já tiver algo salvo, o bloco abaixo sobrescreve de novo com o valor certo dela.
+  SORT_MODE = 'desvio_desc'; SELECTED_NAMES = null; MAPA_PACOTE_IDX = null;
+  CURRENT_SCREEN = 'home'; SELECTED_MES_ID = null; CUSTOM_ORDER = [];
+  PAINEL_HIDDEN_COLS = []; PAINEL_RESP_FILTRO = null; FOCO_PACOTE_IDX = null;
+  PRESENTATION_MODE = false; CAUSAS_FILTRO_PACOTES = null; CAUSAS_FILTRO_PERIODOS = null;
+  QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null;
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -1819,8 +1832,11 @@ async function initDb(){
       if(d.causasFiltroPacotes!==undefined) CAUSAS_FILTRO_PACOTES = d.causasFiltroPacotes;
       if(d.causasFiltroPeriodos!==undefined) CAUSAS_FILTRO_PERIODOS = d.causasFiltroPeriodos;
       if(d.mapaRotation!=null) MAPA_ROTATION = d.mapaRotation;
-      applyPresentationMode();
     }
+    // fora do `if` de propósito — precisa rodar mesmo numa obra nova sem doc nenhum salvo ainda, pra
+    // sincronizar a classe do body com o PRESENTATION_MODE recém-resetado pra `false` acima (senão o
+    // modo apresentação da obra ANTERIOR ficava "grudado" visualmente até ela mexer em algo).
+    applyPresentationMode();
     if(STATE_DOC.dateRefs.length){
       EXAMPLE_MODE = false;
       const snapDocs = await Promise.all(STATE_DOC.dateRefs.map(dr=>db.doc('snapshots/'+dr).get()));
