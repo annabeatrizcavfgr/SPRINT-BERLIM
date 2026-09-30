@@ -1230,6 +1230,13 @@ function updateAuthUi(){
   // caso (ver refreshServicosRows), então nem oferece o upload pra não confundir.
   const btnUploadServicos = document.getElementById('btnUploadServicos');
   if(btnUploadServicos) btnUploadServicos.style.display = (isPlan && !SERVICOS_SEMANA_META.length) ? '' : 'none';
+  // "Gerenciar planilhas enviadas" (excluir semanas/metas/serviços, configurar meses) — visualizador
+  // não deve nem ver esse botão (2026-09-30, pedido dela: "visualizadores não devem ter poder pra
+  // ajustar nenhuma planilha, mês, causa de não cumprimento, só navegar e ver informações"). O backend
+  // (api/db.js) já recusava essas escritas pra quem não é planejador, mas o botão continuava visível e
+  // clicável, só dando erro depois — agora nem aparece.
+  const btnGerenciarSemanas = document.getElementById('btnGerenciarSemanas');
+  if(btnGerenciarSemanas) btnGerenciarSemanas.style.display = isPlan ? '' : 'none';
   const btnUsuarios = document.getElementById('btnUsuarios');
   if(btnUsuarios) btnUsuarios.style.display = isPlan ? '' : 'none';
   const btnSair = document.getElementById('btnSair');
@@ -1529,6 +1536,11 @@ async function showObraScreen(msg){
 async function enterObra(){
   const ok = await loadRoleAndGate();
   if(!ok) return; // ficou na tela de espera (pendente NESSA obra)
+  // trocar de OBRA é navegação de verdade, igual trocar de tela (ver wireScreenTabs) — sem isso, o
+  // pan/zoom que ela deixou no mapa da obra anterior "vazava" pra dentro do mapa da obra nova (2026-
+  // 09-30, achado dela: mapa do Frankfurt aparecendo deslocado/não preenchendo o espaço certo logo
+  // depois de trocar de Jardins Berlim pra lá).
+  MAPA_VIEW = {scale:1, x:0, y:0};
   seedExample();
   render();
   await initDb();
@@ -4462,6 +4474,7 @@ function renderExpandedPanel(p){
 
     <div class="card" style="margin-bottom:14px;">
       <h3 class="section-title">Causa do desvio desta semana</h3>
+      ${MY_ROLE==='planejador' ? `
       <div class="form-row causa-form-row" style="margin-bottom:8px;">
         <div class="form-field" style="margin-bottom:0;">
           <label>Semana</label>
@@ -4476,10 +4489,13 @@ function renderExpandedPanel(p){
           <input type="text" id="expCausaObs" placeholder="O que foi visto na frente de serviço…">
         </div>
         <button class="btn btn-primary" id="expCausaSubmit" data-idx="${pacoteIdx}" style="align-self:flex-end;">Registrar</button>
-      </div>
+      </div>` : ''}
       <div class="pill-row">
+        <!-- visualizador (2026-09-30, pedido dela: "visualizadores não devem ter poder pra ajustar
+        nenhuma planilha, mês, causa de não cumprimento, só navegar e ver informações") só vê o
+        histórico, sem o "✕" de excluir e sem o formulário acima. -->
         ${list.length ? list.map(c=>`
-          <span class="badge badge-critical" ${c.obs?`title="${c.obs.replace(/"/g,'&quot;')}"`:''}>${CAUSAS_LISTA[c.causaId]}${c.weekOrd!=null?' · '+fmtDateShort(c.weekOrd):''}<button type="button" class="badge-del" data-causa-id="${c.id}" title="Excluir esta causa" aria-label="Excluir causa registrada">✕</button></span>`).join('') : `<p class="empty-note">Nenhuma causa registrada ${mes?'em '+mes.label:'nas últimas semanas'} pra este pacote.</p>`}
+          <span class="badge badge-critical" ${c.obs?`title="${c.obs.replace(/"/g,'&quot;')}"`:''}>${CAUSAS_LISTA[c.causaId]}${c.weekOrd!=null?' · '+fmtDateShort(c.weekOrd):''}${MY_ROLE==='planejador'?`<button type="button" class="badge-del" data-causa-id="${c.id}" title="Excluir esta causa" aria-label="Excluir causa registrada">✕</button>`:''}</span>`).join('') : `<p class="empty-note">Nenhuma causa registrada ${mes?'em '+mes.label:'nas últimas semanas'} pra este pacote.</p>`}
       </div>
     </div>
 
