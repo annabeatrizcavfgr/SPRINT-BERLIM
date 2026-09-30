@@ -1908,19 +1908,33 @@ async function deleteServicos(){
   return true;
 }
 // serviços embutidos na planilha semanal (2026-09-17, Jardins Frankfurt — ver matchHeaders/
-// handleWorkbook) — cada upload semanal com coluna "Serviço" salva um resumo pequeno (contagem de
-// casas concluídas por pacote+serviço NAQUELA semana, não o detalhe casa a casa) em
+// handleWorkbook) — cada upload semanal com coluna "Serviço" salva um resumo pequeno em
 // "servicosSemana/{dateRef}", em vez de subir a planilha separada de sempre.
+// 2026-09-30, pedido dela (só pra obras com serviço embutido — "Enviar serviços do pacote" separado,
+// usado pelo Berlim, continua como já era): "vamos calcular os que estão com 100 no realizado, e que
+// a data executada é na semana em discussão [...] temos que tratar da mesma forma que tratamos os
+// pacotes". Antes contava um "doneCount" ÚNICO (absoluto, sem semana) por pacote+etapa a cada envio,
+// e `computeServicosFromSemanal` INFERIA o "realizado da semana" comparando esse total com o do envio
+// anterior — o que atribuía o avanço à semana do UPLOAD, não à semana em que a casa foi REALMENTE
+// concluída (a mesma distorção que o resto do app evita pros pacotes, usando `vigFim` real). Agora
+// cada linha de serviço já carrega seu próprio `vigFim` (mesma coluna "Término", lida uma vez em
+// matchHeaders e aplicada a toda linha da planilha, agregada OU de serviço) — então dá pra bucketizar
+// direto por `weekOfOrd(vigFim)`, idêntico ao que `weeklySeries`/`respWeeklyBreakdown` já fazem pros
+// pacotes. Como cada planilha do MS Project já reexporta o HISTÓRICO inteiro (toda casa já concluída
+// continua aparecendo, com a mesma data real de conclusão), a planilha mais recente sozinha já basta
+// pra reconstruir a distribuição semanal completa — não precisa mais comparar com envios anteriores.
 async function saveServicoSemana(dateRef, servicoRows){
-  const porPacote = new Map();
+  const porChave = new Map(); // "pacoteIdx|etapa|weekOrd" -> contagem de casas concluídas NESSA semana
   servicoRows.forEach(r=>{
-    if(!porPacote.has(r.pacoteIdx)) porPacote.set(r.pacoteIdx, new Map());
-    const porEtapa = porPacote.get(r.pacoteIdx);
-    if(!porEtapa.has(r.etapa)) porEtapa.set(r.etapa, 0);
-    if(r.realizadoPct>=100) porEtapa.set(r.etapa, porEtapa.get(r.etapa)+1);
+    if(r.realizadoPct<100 || r.vigFim==null || r.vigFim<0) return;
+    const chave = r.pacoteIdx+'|'+r.etapa+'|'+weekOfOrd(r.vigFim);
+    porChave.set(chave, (porChave.get(chave)||0)+1);
   });
   const items = [];
-  porPacote.forEach((porEtapa, pacoteIdx)=> porEtapa.forEach((doneCount, etapa)=> items.push({pacoteIdx, etapa, doneCount})));
+  porChave.forEach((doneCount, chave)=>{
+    const parts = chave.split('|');
+    items.push({ pacoteIdx: parseInt(parts[0],10), etapa: parts[1], weekOrd: parseInt(parts[2],10), doneCount });
+  });
   const uploadedAt = new Date().toISOString();
   if(db) await db.doc('servicosSemana/'+dateRef).set({ items, uploadedAt });
   SERVICOS_SEMANA_META = SERVICOS_SEMANA_META.filter(s=>s.dateRef!==dateRef)
@@ -1952,40 +1966,41 @@ async function deleteServicoSemana(dateRef){
   return true;
 }
 // deriva o SERVICOS_ROWS (mesmo formato de sempre — servicosCardHtml não precisa saber a origem) a
-// partir do histórico de resumos semanais em vez de uma planilha separada. "weekOrds" = as semanas
-// do mês selecionado (mesma convenção do upload manual: 1ª posição = 1ª semana do mês). Uma semana
-// sem upload novo carrega adiante o último resumo conhecido (mesmo "carry forward" que o resto do
-// app já faz pra semana sem dado novo).
+// partir do resumo semanal MAIS RECENTE — não precisa mais somar/comparar vários envios: como cada
+// `items` já vem bucketizado por `weekOrd` de execução real (ver saveServicoSemana), e cada planilha
+// nova reexporta o histórico inteiro, o envio mais recente relevante já contém sozinho a distribuição
+// completa de todas as semanas (passadas e futuras até a data dele). "weekOrds" = as semanas do mês
+// selecionado (1ª posição = 1ª semana do mês).
 async function computeServicosFromSemanal(weekOrds){
   if(!db || !weekOrds.length) return [];
   const { docs } = await db.collection('servicosSemana').get();
   const porData = docs.map(d=>({ dateRef: d.id, items: d.data().items||[] })).sort((a,b)=>a.dateRef<b.dateRef?-1:1);
   if(!porData.length) return [];
-  const firstWeekIso = isoFromOrd(weekOrds[0]);
-  const antes = porData.filter(p=>p.dateRef<firstWeekIso);
-  const baselineMap = new Map();
-  if(antes.length) antes[antes.length-1].items.forEach(it=> baselineMap.set(it.pacoteIdx+'|'+it.etapa, it.doneCount));
-  const chaves = new Set();
-  porData.forEach(p=> p.items.forEach(it=> chaves.add(it.pacoteIdx+'|'+it.etapa)));
-  const porSemana = weekOrds.map(w=>{
-    const iso = isoFromOrd(w);
-    const candidatos = porData.filter(p=>p.dateRef<=iso);
-    const map = new Map();
-    if(candidatos.length) candidatos[candidatos.length-1].items.forEach(it=> map.set(it.pacoteIdx+'|'+it.etapa, it.doneCount));
-    return { weekOrd: w, map };
+  const lastWeekIso = isoFromOrd(weekOrds[weekOrds.length-1]);
+  const candidatos = porData.filter(p=>p.dateRef<=lastWeekIso);
+  // sem nenhum envio até (ou antes) do mês pedido, ainda assim usa o mais antigo disponível — melhor
+  // mostrar o que tem do que nada, mesma lógica de fallback já usada nos outros lugares do app.
+  const fonte = candidatos.length ? candidatos[candidatos.length-1] : porData[0];
+  const porChave = new Map(); // "pacoteIdx|etapa" -> Map(weekOrd -> doneCount NAQUELA semana)
+  fonte.items.forEach(it=>{
+    const chave = it.pacoteIdx+'|'+it.etapa;
+    if(!porChave.has(chave)) porChave.set(chave, new Map());
+    porChave.get(chave).set(it.weekOrd, it.doneCount);
   });
+  const firstWeek = weekOrds[0];
   const rows = [];
-  chaves.forEach(chave=>{
+  porChave.forEach((porSemanaMap, chave)=>{
     const sep = chave.indexOf('|');
     const pacoteIdx = parseInt(chave.slice(0,sep),10);
     const etapa = chave.slice(sep+1);
-    const acumuladoAnterior = baselineMap.has(chave) ? baselineMap.get(chave) : 0;
-    let prev = acumuladoAnterior;
-    const weeks = porSemana.map(s=>{
-      const acumulado = s.map.has(chave) ? s.map.get(chave) : prev;
-      const realizado = acumulado - prev;
-      prev = acumulado;
-      return { weekOrd: s.weekOrd, acumulado, realizado };
+    // acumulado ANTES do mês pedido = soma de tudo que já tinha vigFim em semanas anteriores à 1ª do mês
+    let acumuladoAnterior = 0;
+    porSemanaMap.forEach((count, weekOrd)=>{ if(weekOrd<firstWeek) acumuladoAnterior += count; });
+    let acumulado = acumuladoAnterior;
+    const weeks = weekOrds.map(w=>{
+      const realizado = porSemanaMap.get(w) || 0;
+      acumulado += realizado;
+      return { weekOrd: w, acumulado, realizado };
     });
     rows.push({ pacoteIdx, etapa, acumuladoAnterior, weeks });
   });
