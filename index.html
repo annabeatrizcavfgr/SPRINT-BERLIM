@@ -3777,7 +3777,7 @@ function ensureMapaMounted(){
     });
     return;
   }
-  wrap.innerHTML = '<p class="empty-note mapa-sem-svg" style="padding:40px 16px;">Nenhum mapa enviado ainda pra essa obra — clique em "🗺️ Enviar mapa" pra subir o arquivo SVG.</p>';
+  wrap.innerHTML = `<p class="empty-note mapa-sem-svg" style="padding:40px 16px;">${MY_ROLE==='planejador' ? 'Nenhum mapa enviado ainda pra essa obra — clique em "🗺️ Enviar mapa" pra subir o arquivo SVG.' : 'Nenhum mapa enviado ainda pra essa obra.'}</p>`;
 }
 // o mapa segue o pacote aberto na tabela (accordion); sem nada aberto, usa a escolha manual do seletor
 function effectiveMapaPacoteIdx(){ return EXPANDED_IDX!=null ? EXPANDED_IDX : MAPA_PACOTE_IDX; }
@@ -4344,7 +4344,7 @@ function renderPainelGerencial(){
       ${screenTabsHtml()}
       <details class="card" id="painelTableCard" style="margin-bottom:14px;" ${PAINEL_TABLE_OPEN?'open':''}>
         <summary>Painel gerencial <span class="chev">▸</span></summary>
-        <p class="empty-note">Configure um mês em "🗑️ Gerenciar planilhas enviadas" pra ver o acompanhamento semanal de todos os pacotes aqui.</p>
+        <p class="empty-note">${MY_ROLE==='planejador' ? 'Configure um mês em "🗑️ Gerenciar planilhas enviadas" pra ver o acompanhamento semanal de todos os pacotes aqui.' : 'Nenhum mês configurado ainda pra essa obra — peça a um planejador pra configurar.'}</p>
       </details>
       ${mapaCardHtml(ranking, 'side')}
       ${quadraDetailsHtml()}
@@ -4506,7 +4506,7 @@ function renderExpandedPanel(p){
   <div class="expand-panel">
     <div class="card" style="margin-bottom:14px;">
       <h3 class="section-title">Por coordenador ${mes?'— '+mes.label:''}</h3>
-      ${coordData ? renderCoordCards(coordData) : '<p class="empty-note">Configure um mês em "🗑️ Gerenciar planilhas enviadas" pra ver a quebra semana a semana por coordenador.</p>'}
+      ${coordData ? renderCoordCards(coordData) : `<p class="empty-note">${MY_ROLE==='planejador' ? 'Configure um mês em "🗑️ Gerenciar planilhas enviadas" pra ver a quebra semana a semana por coordenador.' : 'Nenhum mês configurado ainda pra essa obra — peça a um planejador pra configurar.'}</p>`}
     </div>
 
     <div class="card" style="margin-bottom:14px;">
