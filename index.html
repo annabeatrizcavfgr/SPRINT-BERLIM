@@ -432,9 +432,12 @@ svg.chart{width:100%; height:auto; display:block; min-width:480px;}
 #mapaWrap{
   /* aspect-ratio (não height fixo) — o viewBox do mapa é 7680x4320 (16:9); casando a proporção do
      container com a do SVG, "meet" (ver JS) preenche o container inteiro sem cortar nada E sem sobrar
-     faixa cinza, pra qualquer largura que o card tiver nas duas telas. */
+     faixa cinza, pra qualquer largura que o card tiver nas duas telas. Mapas com proporção diferente
+     de 16:9 (ex. Frankfurt rotacionado, 4967x3509) ainda sobram uma faixa nas laterais — por isso o
+     fundo é --surface (branco no claro), não --surface-2 (cinza), pedido dela 2026-09-30 "quero que o
+     fundo (onde não for mapa) fique em branco, para melhor estética". */
   width:100%; aspect-ratio:16/9; overflow:hidden; border-radius:10px; border:1px solid var(--border);
-  background:var(--surface-2); cursor:grab; touch-action:none; user-select:none;
+  background:var(--surface); cursor:grab; touch-action:none; user-select:none;
 }
 #mapaWrap.dragging{cursor:grabbing;}
 #mapaWrap svg{display:block; width:100%; height:100%; transform-origin:0 0;}
@@ -3974,7 +3977,7 @@ function mapaCardHtml(ranking, layout, alwaysOpen){
       <div class="mapa-zoom-controls">
         <button class="btn btn-sm" id="mapaZoomIn" title="Mais zoom">+</button>
         <button class="btn btn-sm" id="mapaZoomOut" title="Menos zoom">−</button>
-        <button class="btn btn-sm" id="mapaZoomReset" title="Voltar ao início">⟲</button>
+        <button class="btn btn-sm" id="mapaZoomReset" title="Enquadrar (voltar ao início)">⛶</button>
         <button class="btn btn-sm" id="mapaRotateBtn" title="Girar mapa 90°">⟳</button>
       </div>
     </div>
