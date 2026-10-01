@@ -4310,23 +4310,6 @@ function restricaoGutNome(letter, v){
 function restricaoGutCellText(letter, v){
   return (v==null || v==='') ? '—' : `${v} - ${restricaoGutNome(letter, v)}`;
 }
-function restricaoLegendaHtml(){
-  return `<details class="card" style="margin-bottom:12px;">
-    <summary>ℹ️ O que significa G, U, T? <span class="chev">▸</span></summary>
-    <div style="overflow-x:auto; margin-top:10px;">
-    <table class="rank-table mono" style="min-width:620px;">
-      <thead><tr>
-        <th>Nota</th>
-        <th>G – Gravidade<br><span class="pkg-meta">(impacto se nada for feito)</span></th>
-        <th>U – Urgência<br><span class="pkg-meta">(prazo para agir)</span></th>
-        <th>T – Tendência<br><span class="pkg-meta">(evolução se nada for feito)</span></th>
-      </tr></thead>
-      <tbody>${[5,4,3,2,1].map(n=>`<tr><td class="num-cell" style="font-weight:700;">${n}</td><td class="left">${restricaoGutNome('g',n)}</td><td class="left">${restricaoGutNome('u',n)}</td><td class="left">${restricaoGutNome('t',n)}</td></tr>`).join('')}</tbody>
-    </table>
-    </div>
-    <p class="footer-note" style="padding-top:8px;">Classificação = G × U × T. Quanto maior, mais prioridade: <span class="badge badge-critical">≥64</span> <span class="badge badge-warn">≥27</span> <span class="badge badge-good">abaixo disso</span>.</p>
-  </details>`;
-}
 // select com a frase inteira de cada nível (não só o número 1-5) — ela pediu depois de ver que os
 // campos G/U/T eram inputs numéricos "pelados": "queria que colocasse isso, e não somente o número
 // na hora de selecionar." Cada G/U/T agora tem sua própria coluna na tabela (ver renderRestricoes),
@@ -4372,7 +4355,6 @@ function renderRestricoes(){
   screen.innerHTML = `
   <div class="screen-enter">
     ${screenTabsHtml()}
-    ${restricaoLegendaHtml()}
     <div class="card">
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
         <h3 class="section-title" style="margin:0;">🚧 Restrições</h3>
