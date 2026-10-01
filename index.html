@@ -4252,8 +4252,9 @@ function restricaoDias(r){
   if(isNaN(d)) return null;
   return Math.max(0, Math.round((new Date().setHours(0,0,0,0) - d.getTime())/86400000));
 }
-// legenda da matriz G.U.T (2026-10-01, pedido dela; texto exato que ela mandou por imagem — NÃO é
-// mais a definição genérica que eu tinha colocado antes, é a redação que o time dela já usa).
+// legenda da matriz G.U.T (2026-10-01; texto exato da legenda REAL que o time dela usa na planilha
+// — ela mandou print dos comentários da Erika Sakai na planilha, com a redação oficial, que é mais
+// curta/diferente da que eu tinha colocado antes a partir de uma definição genérica de mercado).
 // Única fonte de verdade: tanto a legenda quanto os <select> de G/U/T (ver restricaoGutSelectHtml)
 // usam este mesmo objeto, pra nunca ficarem com textos diferentes um do outro.
 const RESTRICAO_GUT_NIVEIS = {
@@ -4266,17 +4267,17 @@ const RESTRICAO_GUT_NIVEIS = {
   ],
   u: [
     {v:5, nome:'Ação imediata'},
-    {v:4, nome:'Muito urgente / com alguma urgência'},
-    {v:3, nome:'Urgente, o mais rápido possível'},
-    {v:2, nome:'Pouco urgente, pode aguardar'},
-    {v:1, nome:'Pode esperar / sem pressa'},
+    {v:4, nome:'Muito urgente'},
+    {v:3, nome:'Urgente'},
+    {v:2, nome:'Pouco urgente'},
+    {v:1, nome:'Pode esperar'},
   ],
   t: [
-    {v:5, nome:'Piora rapidamente / imediatamente'},
-    {v:4, nome:'Piora em pouco tempo'},
-    {v:3, nome:'Piora no médio prazo'},
-    {v:2, nome:'Piora no longo prazo'},
-    {v:1, nome:'Não vai piorar (ou pode melhorar)'},
+    {v:5, nome:'Irá piorar rapidamente'},
+    {v:4, nome:'Irá piorar a curto prazo'},
+    {v:3, nome:'Irá piorar a médio prazo'},
+    {v:2, nome:'Irá piorar a longo prazo'},
+    {v:1, nome:'Não irá mudar'},
   ],
 };
 function restricaoGutNome(letter, v){
