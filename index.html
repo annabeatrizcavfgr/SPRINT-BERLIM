@@ -4227,7 +4227,33 @@ function wireScreenTabs(){
    adiar isso tudo pra uma próxima etapa, se fizer falta).
 =================================================================== */
 let RESTRICAO_SEARCH = '';
+// linha nova fica direto na tabela (2026-10-01, pedido dela: "não quero que crie caixa pra criar
+// restrição, só linha nova mesmo") — nada de modal pra CADASTRAR; editar uma já existente continua
+// abrindo o modal (ela só reclamou do fluxo de criar).
+let RESTRICAO_ADDING = false;
 function restricaoStatusLabel(s){ return s==='resolvido' ? 'Resolvido' : 'Em aberto'; }
+function restricaoNovaLinhaHtml(){
+  const pacoteOpts = LOOKUPS.pacotes.map(n=>`<option value="${n}">`).join('');
+  return `<tr class="restricao-nova">
+    <td class="num-cell mono">—</td>
+    <td><input id="rnServico" list="rnServicoList" placeholder="Serviço/pacote"><datalist id="rnServicoList">${pacoteOpts}</datalist></td>
+    <td><input type="date" id="rnData"></td>
+    <td><input id="rnEng" placeholder="Responsável"></td>
+    <td class="left"><input id="rnRestricao" placeholder="Descreva a restrição" style="width:100%;"></td>
+    <td><select id="rnStatus"><option value="aberto" selected>Em aberto</option><option value="resolvido">Resolvido</option></select></td>
+    <td>
+      <div style="display:flex; gap:3px;">
+        <input type="number" min="1" max="5" id="rnG" placeholder="G" title="Gravidade" style="width:38px;">
+        <input type="number" min="1" max="5" id="rnU" placeholder="U" title="Urgência" style="width:38px;">
+        <input type="number" min="1" max="5" id="rnT" placeholder="T" title="Tendência" style="width:38px;">
+      </div>
+    </td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-sm btn-primary" id="rnSalvar">Salvar</button>
+      <button class="btn btn-sm" id="rnCancelar">✕</button>
+    </td>
+  </tr>`;
+}
 function renderRestricoes(){
   const nq = RESTRICAO_SEARCH.trim().toLowerCase();
   const list = RESTRICOES
@@ -4241,7 +4267,7 @@ function renderRestricoes(){
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
         <h3 class="section-title" style="margin:0;">🚧 Restrições</h3>
         <input class="search-input" id="restricaoSearch" style="flex:1; min-width:180px; margin:0;" placeholder="Buscar por serviço ou restrição..." value="${RESTRICAO_SEARCH.replace(/"/g,'&quot;')}">
-        ${MY_ROLE==='planejador' ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
+        ${MY_ROLE==='planejador' && !RESTRICAO_ADDING ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
       <div class="panel-table-wrap">
       <table class="rank-table panel-table">
@@ -4251,6 +4277,7 @@ function renderRestricoes(){
           ${MY_ROLE==='planejador' ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
+          ${MY_ROLE==='planejador' && RESTRICAO_ADDING ? restricaoNovaLinhaHtml() : ''}
           ${list.length ? list.map(r=>{
             const c = restricaoCls(r), band = restricaoBand(c);
             return `<tr class="${MY_ROLE==='planejador'?'pkg-row':''}" data-id="${r.id}" style="${MY_ROLE==='planejador'?'cursor:pointer;':''}">
@@ -4263,7 +4290,7 @@ function renderRestricoes(){
               <td class="num-cell mono">${c!=null?`<span class="badge badge-${band}">${c}</span>`:'—'}</td>
               ${MY_ROLE==='planejador' ? `<td><button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
             </tr>`;
-          }).join('') : `<tr><td colspan="${MY_ROLE==='planejador'?8:7}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com essa busca.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`}
+          }).join('') : (RESTRICAO_ADDING ? '' : `<tr><td colspan="${MY_ROLE==='planejador'?8:7}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com essa busca.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
         </tbody>
       </table>
       </div>
@@ -4278,7 +4305,32 @@ function wireRestricoes(){
   // foca de volta no campo de busca depois de redesenhar (sem isso, digitar perdia o foco a cada letra)
   if(RESTRICAO_SEARCH){ search.focus(); search.selectionStart = search.selectionEnd = search.value.length; }
   const btnNova = document.getElementById('btnNovaRestricao');
-  if(btnNova) btnNova.onclick = ()=> openRestricaoModal(null);
+  if(btnNova) btnNova.onclick = ()=>{ RESTRICAO_ADDING = true; renderRestricoes(); };
+  const rnServico = document.getElementById('rnServico');
+  if(rnServico) rnServico.focus();
+  const rnCancelar = document.getElementById('rnCancelar');
+  if(rnCancelar) rnCancelar.onclick = ()=>{ RESTRICAO_ADDING = false; renderRestricoes(); };
+  const rnSalvar = document.getElementById('rnSalvar');
+  if(rnSalvar) rnSalvar.onclick = async ()=>{
+    const toInt = v=>{ const n=parseInt(v,10); return (v==='' || isNaN(n)) ? null : Math.max(1,Math.min(5,n)); };
+    const restricao = document.getElementById('rnRestricao').value.trim();
+    if(!restricao){ toast('Descreva a restrição.', 'warn'); return; }
+    await saveRestricao({
+      servico: document.getElementById('rnServico').value.trim(),
+      data: document.getElementById('rnData').value || null,
+      eng: document.getElementById('rnEng').value.trim(),
+      restricao,
+      solucao: '',
+      dataResolucao: null,
+      status: document.getElementById('rnStatus').value,
+      g: toInt(document.getElementById('rnG').value),
+      u: toInt(document.getElementById('rnU').value),
+      t: toInt(document.getElementById('rnT').value),
+    });
+    RESTRICAO_ADDING = false;
+    toast('Restrição cadastrada.');
+    renderRestricoes();
+  };
   if(MY_ROLE==='planejador'){
     document.querySelectorAll('tr[data-id]').forEach(tr=>{
       tr.addEventListener('click', e=>{
