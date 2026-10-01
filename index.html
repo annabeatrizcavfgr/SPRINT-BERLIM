@@ -262,6 +262,18 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .rank-table tbody tr.restricao-band-critical .badge{
   background:var(--surface); border:1px solid currentColor;
 }
+/* a tabela de Restrições tem texto longo (restrição/observação/G·U·T) — ".panel-table" por padrão
+   força white-space:nowrap em tudo (bom pras tabelas numéricas do Painel Gerencial, ruim aqui: cada
+   coluna de texto virava uma linha só, esticando a tabela e forçando rolagem horizontal). Libera o
+   quebra-linha e limita a largura das colunas de texto livre, pra caber na tela sem scroll
+   (2026-10-01, pedido dela: "nao ficou bom, precisamos dar um jeito de caber na tela"). */
+.panel-table.restricao-table th, .panel-table.restricao-table td{white-space:normal;}
+.restricao-table td.left{max-width:170px;}
+.restricao-table .restricao-gut-cell{font-size:12.5px; line-height:1.6; min-width:145px; max-width:150px;}
+.restricao-table .restricao-gut-cell div{color:var(--text-muted);}
+.restricao-table .restricao-servico-cell{
+  max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
 .pkg-name{font-weight:600;}
 .pkg-meta{font-size:12px; color:var(--text-muted);}
 .bar-track{width:100%; height:6px; border-radius:99px; background:var(--surface-2); overflow:hidden;}
@@ -4336,10 +4348,13 @@ function restricaoLinhaFormHtml(r){
     <td class="left"><input id="${p}Restricao" placeholder="Descreva a restrição" style="width:100%;" value="${v('restricao')}"></td>
     <td class="left"><input id="${p}Solucao" placeholder="Observação (opcional)" style="width:100%;" value="${v('solucao')}"></td>
     <td><select id="${p}Status">${restricaoStatusOptionsHtml(r&&r.status)}</select></td>
-    <td>${restricaoGutSelectHtml('g',p+'G', r&&r.g)}</td>
-    <td>${restricaoGutSelectHtml('u',p+'U', r&&r.u)}</td>
-    <td>${restricaoGutSelectHtml('t',p+'T', r&&r.t)}</td>
-    <td class="num-cell mono">—</td>
+    <td>
+      <div style="display:flex; flex-direction:column; gap:3px; min-width:190px;">
+        ${restricaoGutSelectHtml('g',p+'G', r&&r.g)}
+        ${restricaoGutSelectHtml('u',p+'U', r&&r.u)}
+        ${restricaoGutSelectHtml('t',p+'T', r&&r.t)}
+      </div>
+    </td>
     <td style="white-space:nowrap;">
       <button class="btn btn-sm btn-primary" id="${p}Salvar">Salvar</button>
       <button class="btn btn-sm" id="${p}Cancelar">✕</button>
@@ -4362,10 +4377,10 @@ function renderRestricoes(){
         ${MY_ROLE==='planejador' && !RESTRICAO_ADDING && !RESTRICAO_EDITING_ID ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
       <div class="panel-table-wrap">
-      <table class="rank-table panel-table">
+      <table class="rank-table panel-table restricao-table">
         <thead><tr>
-          <th>Item</th><th>Serviço</th><th>Data</th><th>Dias em<br>andamento</th><th>Eng. responsável</th><th>Restrição</th>
-          <th>Observação</th><th>Status</th><th>G</th><th>U</th><th>T</th>
+          <th>Item</th><th>Serviço</th><th>Data</th><th>Dias em<br>andamento</th><th>Responsável</th><th>Restrição</th>
+          <th>Observação</th><th>Status</th>
           <th>Classificação<br><span class="pkg-meta">(G×U×T)</span></th>
           ${MY_ROLE==='planejador' ? '<th></th>' : ''}
         </tr></thead>
@@ -4378,20 +4393,22 @@ function renderRestricoes(){
             const bandClass = band ? `restricao-band-${band}` : '';
             return `<tr class="${MY_ROLE==='planejador'?'pkg-row':''} ${bandClass}" data-id="${r.id}" style="${MY_ROLE==='planejador'?'cursor:pointer;':''}">
               <td class="num-cell mono">${r.item}</td>
-              <td>${r.servico||'—'}</td>
+              <td class="restricao-servico-cell" title="${(r.servico||'').replace(/"/g,'&quot;')}">${r.servico||'—'}</td>
               <td class="num-cell mono">${r.data?fmtDate2(r.data):'—'}</td>
               <td class="num-cell mono">${dias!=null?dias:'—'}</td>
               <td>${r.eng||'—'}</td>
               <td class="left">${r.restricao||'—'}</td>
               <td class="left">${r.solucao||'—'}</td>
               <td><span class="badge ${restricaoStatusBadge(r.status)}">${restricaoStatusLabel(r.status)}</span></td>
-              <td>${restricaoGutCellText('g', r.g)}</td>
-              <td>${restricaoGutCellText('u', r.u)}</td>
-              <td>${restricaoGutCellText('t', r.t)}</td>
-              <td class="num-cell mono">${c!=null?`<span class="badge badge-${band}">${c}</span>`:'—'}</td>
+              <td class="left restricao-gut-cell">
+                <div>G: ${restricaoGutCellText('g', r.g)}</div>
+                <div>U: ${restricaoGutCellText('u', r.u)}</div>
+                <div>T: ${restricaoGutCellText('t', r.t)}</div>
+                ${c!=null?`<span class="badge badge-${band}" style="margin-top:4px;">${c}</span>`:''}
+              </td>
               ${MY_ROLE==='planejador' ? `<td style="white-space:nowrap;"><button type="button" class="btn btn-sm" data-edit-restricao="${r.id}" title="Editar" aria-label="Editar restrição">✎</button> <button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
             </tr>`;
-          }).join('') : (RESTRICAO_ADDING ? '' : `<tr><td colspan="${MY_ROLE==='planejador'?13:12}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com essa busca.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
+          }).join('') : (RESTRICAO_ADDING ? '' : `<tr><td colspan="${MY_ROLE==='planejador'?10:9}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com essa busca.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
         </tbody>
       </table>
       </div>
