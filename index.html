@@ -253,6 +253,15 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .rank-table tbody tr.restricao-band-good.pkg-row:hover,
 .rank-table tbody tr.restricao-band-warn.pkg-row:hover,
 .rank-table tbody tr.restricao-band-critical.pkg-row:hover{filter:brightness(0.96);}
+/* os badges (status/classificação) usam a MESMA cor *-soft do fundo da linha — sem isso o número da
+   classificação "sumia" dentro da própria linha colorida. Dá um fundo sólido+borda só quando o badge
+   está dentro de uma linha tingida, pra continuar legível (ela reportou: "eu queria ver a
+   classificação e nao que ficasse como resumo"). */
+.rank-table tbody tr.restricao-band-good .badge,
+.rank-table tbody tr.restricao-band-warn .badge,
+.rank-table tbody tr.restricao-band-critical .badge{
+  background:var(--surface); border:1px solid currentColor;
+}
 .pkg-name{font-weight:600;}
 .pkg-meta{font-size:12px; color:var(--text-muted);}
 .bar-track{width:100%; height:6px; border-radius:99px; background:var(--surface-2); overflow:hidden;}
@@ -4294,6 +4303,13 @@ function restricaoGutNome(letter, v){
   const n = RESTRICAO_GUT_NIVEIS[letter].find(x=>x.v===Number(v));
   return n ? n.nome : '';
 }
+// texto "5 - Extremamente grave" pra mostrar G/U/T individualmente na tela principal — ela pediu
+// depois de ver que só mostrávamos o resultado final (G×U×T), sem as 3 letras separadas: "no app que
+// eu te mandei ele fica mostrando a classificação de cada uma das letras na tela principal, e nao só
+// o resumo."
+function restricaoGutCellText(letter, v){
+  return (v==null || v==='') ? '—' : `${v} - ${restricaoGutNome(letter, v)}`;
+}
 function restricaoLegendaHtml(){
   return `<details class="card" style="margin-bottom:12px;">
     <summary>ℹ️ O que significa G, U, T? <span class="chev">▸</span></summary>
@@ -4313,14 +4329,11 @@ function restricaoLegendaHtml(){
 }
 // select com a frase inteira de cada nível (não só o número 1-5) — ela pediu depois de ver que os
 // campos G/U/T eram inputs numéricos "pelados": "queria que colocasse isso, e não somente o número
-// na hora de selecionar."
+// na hora de selecionar." Cada G/U/T agora tem sua própria coluna na tabela (ver renderRestricoes),
+// então o select não precisa mais repetir a letra — o cabeçalho da coluna já diz.
 function restricaoGutSelectHtml(letter, id, selected){
-  const label = letter.toUpperCase();
   const opts = RESTRICAO_GUT_NIVEIS[letter].map(n=>`<option value="${n.v}" ${String(selected)===String(n.v)?'selected':''}>${n.v} - ${n.nome}</option>`).join('');
-  return `<div style="display:flex; align-items:center; gap:5px;">
-    <span style="width:13px; font-weight:700; flex-shrink:0;" title="${label}">${label}</span>
-    <select id="${id}" style="width:100%; min-width:190px;"><option value="">—</option>${opts}</select>
-  </div>`;
+  return `<select id="${id}" style="width:100%; min-width:170px;"><option value="">—</option>${opts}</select>`;
 }
 // formulário inline, usado tanto pra CRIAR (r=null, prefixo "rn") quanto pra EDITAR uma restrição já
 // existente (r=o registro, prefixo "re") — mesma linha da tabela vira os campos editáveis, sem modal
@@ -4340,13 +4353,10 @@ function restricaoLinhaFormHtml(r){
     <td class="left"><input id="${p}Restricao" placeholder="Descreva a restrição" style="width:100%;" value="${v('restricao')}"></td>
     <td class="left"><input id="${p}Solucao" placeholder="Observação (opcional)" style="width:100%;" value="${v('solucao')}"></td>
     <td><select id="${p}Status">${restricaoStatusOptionsHtml(r&&r.status)}</select></td>
-    <td>
-      <div style="display:flex; flex-direction:column; gap:3px; min-width:190px;">
-        ${restricaoGutSelectHtml('g',p+'G', r&&r.g)}
-        ${restricaoGutSelectHtml('u',p+'U', r&&r.u)}
-        ${restricaoGutSelectHtml('t',p+'T', r&&r.t)}
-      </div>
-    </td>
+    <td>${restricaoGutSelectHtml('g',p+'G', r&&r.g)}</td>
+    <td>${restricaoGutSelectHtml('u',p+'U', r&&r.u)}</td>
+    <td>${restricaoGutSelectHtml('t',p+'T', r&&r.t)}</td>
+    <td class="num-cell mono">—</td>
     <td style="white-space:nowrap;">
       <button class="btn btn-sm btn-primary" id="${p}Salvar">Salvar</button>
       <button class="btn btn-sm" id="${p}Cancelar">✕</button>
@@ -4373,7 +4383,8 @@ function renderRestricoes(){
       <table class="rank-table panel-table">
         <thead><tr>
           <th>Item</th><th>Serviço</th><th>Data</th><th>Dias em<br>andamento</th><th>Eng. responsável</th><th>Restrição</th>
-          <th>Observação</th><th>Status</th><th>Classificação<br><span class="pkg-meta">(G×U×T)</span></th>
+          <th>Observação</th><th>Status</th><th>G</th><th>U</th><th>T</th>
+          <th>Classificação<br><span class="pkg-meta">(G×U×T)</span></th>
           ${MY_ROLE==='planejador' ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
@@ -4392,10 +4403,13 @@ function renderRestricoes(){
               <td class="left">${r.restricao||'—'}</td>
               <td class="left">${r.solucao||'—'}</td>
               <td><span class="badge ${restricaoStatusBadge(r.status)}">${restricaoStatusLabel(r.status)}</span></td>
+              <td>${restricaoGutCellText('g', r.g)}</td>
+              <td>${restricaoGutCellText('u', r.u)}</td>
+              <td>${restricaoGutCellText('t', r.t)}</td>
               <td class="num-cell mono">${c!=null?`<span class="badge badge-${band}">${c}</span>`:'—'}</td>
               ${MY_ROLE==='planejador' ? `<td style="white-space:nowrap;"><button type="button" class="btn btn-sm" data-edit-restricao="${r.id}" title="Editar" aria-label="Editar restrição">✎</button> <button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
             </tr>`;
-          }).join('') : (RESTRICAO_ADDING ? '' : `<tr><td colspan="${MY_ROLE==='planejador'?10:9}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com essa busca.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
+          }).join('') : (RESTRICAO_ADDING ? '' : `<tr><td colspan="${MY_ROLE==='planejador'?13:12}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com essa busca.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
         </tbody>
       </table>
       </div>
