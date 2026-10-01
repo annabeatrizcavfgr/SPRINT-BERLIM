@@ -623,6 +623,11 @@ let META_DATE_REF = null;
 let METAS_META = [];               // [{dateRef, uploadedAt, rowCount, chunkCount}] asc
 let METAS_STATE_DOC = { dateRefs: [], latest: null, previous: null };
 let CAUSAS = [];                   // [{id, pacoteIdx, semanaLabel, weekOrd, causaId, obs, ts}]
+// "Restrições" (matriz G.U.T, 2026-10-01, pedido dela a partir de um app separado que ela usa pra
+// isso — "Gestão e Controle de Obra") — [{id, servico, data, eng, restricao, solucao,
+// dataResolucao, status:'aberto'|'resolvido', g, u, t}]. Versão básica de propósito: sem T
+// automático, sem checklist de tarefas, sem indicadores/WhatsApp (ela decidiu adiar isso tudo).
+let RESTRICOES = [];
 let EXAMPLE_MODE = true;
 // "Meses" de apresentação — grupos de semanas (sexta-feira final) que o time decide, no início de cada
 // mês, tratar como "o mês vigente" na reunião. Não é o mês do calendário — é dado compartilhado (db),
@@ -1791,7 +1796,7 @@ async function initDb(){
   CURRENT_SCREEN = 'home'; SELECTED_MES_ID = null; CUSTOM_ORDER = [];
   PAINEL_HIDDEN_COLS = []; PAINEL_RESP_FILTRO = null; FOCO_PACOTE_IDX = null;
   PRESENTATION_MODE = false; CAUSAS_FILTRO_PACOTES = null; CAUSAS_FILTRO_PERIODOS = null;
-  QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null;
+  QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -1846,6 +1851,9 @@ async function initDb(){
     // sincronizar a classe do body com o PRESENTATION_MODE recém-resetado pra `false` acima (senão o
     // modo apresentação da obra ANTERIOR ficava "grudado" visualmente até ela mexer em algo).
     applyPresentationMode();
+    // fora do `if(STATE_DOC.dateRefs.length)` de propósito — restrições (gestão de bloqueios) não
+    // depende de ter planilha semanal nenhuma enviada ainda, é um controle à parte.
+    await loadRestricoes();
     if(STATE_DOC.dateRefs.length){
       EXAMPLE_MODE = false;
       const snapDocs = await Promise.all(STATE_DOC.dateRefs.map(dr=>db.doc('snapshots/'+dr).get()));
@@ -2202,6 +2210,45 @@ async function deleteCausa(id){
     return false;
   }
 }
+/* ===================================================================
+   RESTRIÇÕES (matriz G.U.T) — versão básica: cadastrar/listar/editar/excluir
+=================================================================== */
+async function loadRestricoes(){
+  if(!db){ RESTRICOES = []; return; }
+  try{
+    const snap = await db.collection('restricoes').get();
+    RESTRICOES = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  }catch(e){ console.error('loadRestricoes failed', e); }
+}
+async function saveRestricao(entry){
+  if(!db){ RESTRICOES.push({id:'local'+Date.now(), ...entry}); toast('Registrado localmente (sem armazenamento persistente nesta visualização).','warn'); return; }
+  const ref = await db.collection('restricoes').add(entry);
+  RESTRICOES.push({id:ref.id, ...entry});
+}
+async function updateRestricao(id, patch){
+  const r = RESTRICOES.find(x=>x.id===id);
+  if(!r) return;
+  Object.assign(r, patch);
+  if(!db) return;
+  try{ await db.doc('restricoes/'+id).set(r); }
+  catch(e){ console.error('updateRestricao failed', e); toast('Falha ao salvar: '+(e && e.message ? e.message : e), 'err'); }
+}
+async function deleteRestricao(id){
+  if(!db){ RESTRICOES = RESTRICOES.filter(r=>r.id!==id); return true; }
+  try{
+    await db.doc('restricoes/'+id).delete();
+    RESTRICOES = RESTRICOES.filter(r=>r.id!==id);
+    return true;
+  }catch(e){
+    console.error('deleteRestricao failed', e);
+    toast('Falha ao excluir: '+(e && e.message ? e.message : e), 'err');
+    return false;
+  }
+}
+// classificação G.U.T = G×U×T (só quando os 3 estão preenchidos) e a faixa de cor — MESMOS números
+// do app de referência dela ("Gestão e Controle de Obra"), pra bater com o que o time já usa.
+function restricaoCls(r){ return (r.g && r.u && r.t) ? r.g*r.u*r.t : null; }
+function restricaoBand(v){ return v==null ? null : v>=64 ? 'critical' : v>=27 ? 'warn' : 'good'; }
 
 /* ===================================================================
    IMPORT PIPELINE
@@ -4148,6 +4195,7 @@ function render(){
       ? '<div id="example-banner">⚠ Exibindo dados de exemplo. Envie a planilha semanal para começar a acompanhar a obra real.</div>' : '';
     populateWeekPicker();
     if(CURRENT_SCREEN==='painel') renderPainelGerencial();
+    else if(CURRENT_SCREEN==='restricoes') renderRestricoes();
     else renderGeral();
   });
 }
@@ -4155,6 +4203,7 @@ function screenTabsHtml(){
   return `<div class="screen-tabs" role="tablist">
     <button class="screen-tab ${CURRENT_SCREEN==='home'?'active':''}" data-tab="home" role="tab" aria-selected="${CURRENT_SCREEN==='home'}">📋 Sprint - Acompanhamento de metas</button>
     <button class="screen-tab ${CURRENT_SCREEN==='painel'?'active':''}" data-tab="painel" role="tab" aria-selected="${CURRENT_SCREEN==='painel'}">📊 Painel gerencial</button>
+    <button class="screen-tab ${CURRENT_SCREEN==='restricoes'?'active':''}" data-tab="restricoes" role="tab" aria-selected="${CURRENT_SCREEN==='restricoes'}">🚧 Restrições</button>
   </div>`;
 }
 function wireScreenTabs(){
@@ -4170,6 +4219,139 @@ function wireScreenTabs(){
       render();
     };
   });
+}
+/* ===================================================================
+   RESTRIÇÕES (matriz G.U.T) — versão básica (2026-10-01, pedido dela a partir de um app separado
+   que ela já usa pra isso — ver memória do projeto). Cadastrar/listar/editar/excluir, com a
+   classificação G×U×T calculada — sem indicadores, T automático, checklist ou WhatsApp (ela decidiu
+   adiar isso tudo pra uma próxima etapa, se fizer falta).
+=================================================================== */
+let RESTRICAO_SEARCH = '';
+function restricaoStatusLabel(s){ return s==='resolvido' ? 'Resolvido' : 'Em aberto'; }
+function renderRestricoes(){
+  const nq = RESTRICAO_SEARCH.trim().toLowerCase();
+  const list = RESTRICOES
+    .map((r,i)=>({...r, item:i+1}))
+    .filter(r=> !nq || (r.servico||'').toLowerCase().includes(nq) || (r.restricao||'').toLowerCase().includes(nq));
+  const screen = document.getElementById('screen');
+  screen.innerHTML = `
+  <div class="screen-enter">
+    ${screenTabsHtml()}
+    <div class="card">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+        <h3 class="section-title" style="margin:0;">🚧 Restrições</h3>
+        <input class="search-input" id="restricaoSearch" style="flex:1; min-width:180px; margin:0;" placeholder="Buscar por serviço ou restrição..." value="${RESTRICAO_SEARCH.replace(/"/g,'&quot;')}">
+        ${MY_ROLE==='planejador' ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
+      </div>
+      <div class="panel-table-wrap">
+      <table class="rank-table panel-table">
+        <thead><tr>
+          <th>Item</th><th>Serviço</th><th>Data</th><th>Eng. responsável</th><th>Restrição</th>
+          <th>Status</th><th>Classificação<br><span class="pkg-meta">(G×U×T)</span></th>
+          ${MY_ROLE==='planejador' ? '<th></th>' : ''}
+        </tr></thead>
+        <tbody>
+          ${list.length ? list.map(r=>{
+            const c = restricaoCls(r), band = restricaoBand(c);
+            return `<tr class="${MY_ROLE==='planejador'?'pkg-row':''}" data-id="${r.id}" style="${MY_ROLE==='planejador'?'cursor:pointer;':''}">
+              <td class="num-cell mono">${r.item}</td>
+              <td>${r.servico||'—'}</td>
+              <td class="num-cell mono">${r.data?fmtDate2(r.data):'—'}</td>
+              <td>${r.eng||'—'}</td>
+              <td class="left">${r.restricao||'—'}</td>
+              <td><span class="badge ${r.status==='resolvido'?'badge-good':'badge-neutral'}">${restricaoStatusLabel(r.status)}</span></td>
+              <td class="num-cell mono">${c!=null?`<span class="badge badge-${band}">${c}</span>`:'—'}</td>
+              ${MY_ROLE==='planejador' ? `<td><button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
+            </tr>`;
+          }).join('') : `<tr><td colspan="${MY_ROLE==='planejador'?8:7}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com essa busca.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>`;
+  wireScreenTabs();
+  wireRestricoes();
+}
+function wireRestricoes(){
+  const search = document.getElementById('restricaoSearch');
+  search.addEventListener('input', e=>{ RESTRICAO_SEARCH = e.target.value; renderRestricoes(); });
+  // foca de volta no campo de busca depois de redesenhar (sem isso, digitar perdia o foco a cada letra)
+  if(RESTRICAO_SEARCH){ search.focus(); search.selectionStart = search.selectionEnd = search.value.length; }
+  const btnNova = document.getElementById('btnNovaRestricao');
+  if(btnNova) btnNova.onclick = ()=> openRestricaoModal(null);
+  if(MY_ROLE==='planejador'){
+    document.querySelectorAll('tr[data-id]').forEach(tr=>{
+      tr.addEventListener('click', e=>{
+        if(e.target.closest('[data-del-restricao]')) return;
+        openRestricaoModal(tr.dataset.id);
+      });
+    });
+    document.querySelectorAll('[data-del-restricao]').forEach(b=>{
+      b.onclick = async e=>{
+        e.stopPropagation();
+        const id = b.dataset.delRestricao;
+        const ok = await confirmModal({
+          title: 'Excluir esta restrição?',
+          body: 'Isso remove permanentemente o registro.',
+          confirmLabel: 'Excluir', danger: true
+        });
+        if(!ok) return;
+        const success = await deleteRestricao(id);
+        if(success){ toast('Restrição excluída.'); renderRestricoes(); }
+      };
+    });
+  }
+}
+function openRestricaoModal(id){
+  const r = id ? RESTRICOES.find(x=>x.id===id) : null;
+  const pacoteOpts = LOOKUPS.pacotes.map(n=>`<option value="${n}">`).join('');
+  openModal(`
+    <h3>${r?'Editar restrição':'Nova restrição'}</h3>
+    <div class="form-row">
+      <div class="form-field"><label>Serviço/pacote</label><input id="rfServico" list="rfServicoList" value="${(r&&r.servico||'').replace(/"/g,'&quot;')}"><datalist id="rfServicoList">${pacoteOpts}</datalist></div>
+      <div class="form-field"><label>Data</label><input type="date" id="rfData" value="${r&&r.data||''}"></div>
+    </div>
+    <div class="form-field"><label>Eng. responsável</label><input id="rfEng" value="${(r&&r.eng||'').replace(/"/g,'&quot;')}"></div>
+    <div class="form-field"><label>Restrição</label><textarea id="rfRestricao">${r&&r.restricao||''}</textarea></div>
+    <div class="form-field"><label>Solução / observação</label><textarea id="rfSolucao">${r&&r.solucao||''}</textarea></div>
+    <div class="form-row">
+      <div class="form-field"><label>Data de resolução</label><input type="date" id="rfDataResolucao" value="${r&&r.dataResolucao||''}"></div>
+      <div class="form-field"><label>Status</label><select id="rfStatus">
+        <option value="aberto" ${(!r||r.status!=='resolvido')?'selected':''}>Em aberto</option>
+        <option value="resolvido" ${r&&r.status==='resolvido'?'selected':''}>Resolvido</option>
+      </select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>G (Gravidade)</label><input type="number" min="1" max="5" id="rfG" value="${r&&r.g||''}"></div>
+      <div class="form-field"><label>U (Urgência)</label><input type="number" min="1" max="5" id="rfU" value="${r&&r.u||''}"></div>
+      <div class="form-field"><label>T (Tendência)</label><input type="number" min="1" max="5" id="rfT" value="${r&&r.t||''}"></div>
+    </div>
+    <div class="modal-actions">
+      ${r?'<button class="btn" id="rfCancel">Cancelar</button>':''}
+      <button class="btn btn-primary" id="rfSalvar">${r?'Salvar':'Cadastrar'}</button>
+    </div>`);
+  if(r) document.getElementById('rfCancel').onclick = closeModal;
+  document.getElementById('rfSalvar').onclick = async ()=>{
+    const toInt = v=>{ const n=parseInt(v,10); return (v==='' || isNaN(n)) ? null : Math.max(1,Math.min(5,n)); };
+    const entry = {
+      servico: document.getElementById('rfServico').value.trim(),
+      data: document.getElementById('rfData').value || null,
+      eng: document.getElementById('rfEng').value.trim(),
+      restricao: document.getElementById('rfRestricao').value.trim(),
+      solucao: document.getElementById('rfSolucao').value.trim(),
+      dataResolucao: document.getElementById('rfDataResolucao').value || null,
+      status: document.getElementById('rfStatus').value,
+      g: toInt(document.getElementById('rfG').value),
+      u: toInt(document.getElementById('rfU').value),
+      t: toInt(document.getElementById('rfT').value),
+    };
+    if(!entry.restricao){ toast('Descreva a restrição.', 'warn'); return; }
+    if(r) await updateRestricao(r.id, entry);
+    else await saveRestricao(entry);
+    closeModal();
+    toast(r?'Restrição atualizada.':'Restrição cadastrada.');
+    renderRestricoes();
+  };
 }
 function pctFmt(v){ return v==null ? '—' : Math.round(v*100)+'%'; }
 // IDP em formato numérico (0.99, 1.05), não percentual (99%, 105%) — pedido dela em 2026-09-09.
