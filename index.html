@@ -4250,26 +4250,64 @@ function restricaoDias(r){
   if(isNaN(d)) return null;
   return Math.max(0, Math.round((new Date().setHours(0,0,0,0) - d.getTime())/86400000));
 }
-// legenda da matriz G.U.T (2026-10-01, pedido dela) — definições padrão do método (Gravidade ×
-// Urgência × Tendência), as mesmas usadas na literatura de gestão que o time já conhece.
+// legenda da matriz G.U.T (2026-10-01, pedido dela; texto exato que ela mandou por imagem — NÃO é
+// mais a definição genérica que eu tinha colocado antes, é a redação que o time dela já usa).
+// Única fonte de verdade: tanto a legenda quanto os <select> de G/U/T (ver restricaoGutSelectHtml)
+// usam este mesmo objeto, pra nunca ficarem com textos diferentes um do outro.
+const RESTRICAO_GUT_NIVEIS = {
+  g: [
+    {v:5, nome:'Extremamente grave'},
+    {v:4, nome:'Muito grave'},
+    {v:3, nome:'Grave'},
+    {v:2, nome:'Pouco grave'},
+    {v:1, nome:'Sem gravidade'},
+  ],
+  u: [
+    {v:5, nome:'Ação imediata'},
+    {v:4, nome:'Muito urgente / com alguma urgência'},
+    {v:3, nome:'Urgente, o mais rápido possível'},
+    {v:2, nome:'Pouco urgente, pode aguardar'},
+    {v:1, nome:'Pode esperar / sem pressa'},
+  ],
+  t: [
+    {v:5, nome:'Piora rapidamente / imediatamente'},
+    {v:4, nome:'Piora em pouco tempo'},
+    {v:3, nome:'Piora no médio prazo'},
+    {v:2, nome:'Piora no longo prazo'},
+    {v:1, nome:'Não vai piorar (ou pode melhorar)'},
+  ],
+};
+function restricaoGutNome(letter, v){
+  const n = RESTRICAO_GUT_NIVEIS[letter].find(x=>x.v===Number(v));
+  return n ? n.nome : '';
+}
 function restricaoLegendaHtml(){
-  const rows = [
-    [1, 'Sem gravidade', 'Pode esperar', 'Não vai piorar (ou até melhora sozinho)'],
-    [2, 'Pouco grave', 'Pouco urgente', 'Vai piorar a longo prazo'],
-    [3, 'Grave', 'Urgente, merece atenção', 'Vai piorar a médio prazo'],
-    [4, 'Muito grave', 'Muito urgente', 'Vai piorar em pouco tempo'],
-    [5, 'Extremamente grave', 'Necessita ação imediata', 'Vai piorar rapidamente'],
-  ];
   return `<details class="card" style="margin-bottom:12px;">
     <summary>ℹ️ O que significa G, U, T? <span class="chev">▸</span></summary>
     <div style="overflow-x:auto; margin-top:10px;">
-    <table class="rank-table mono" style="min-width:520px;">
-      <thead><tr><th></th><th>G — Gravidade</th><th>U — Urgência</th><th>T — Tendência</th></tr></thead>
-      <tbody>${rows.map(([n,g,u,t])=>`<tr><td class="num-cell" style="font-weight:700;">${n}</td><td class="left">${g}</td><td class="left">${u}</td><td class="left">${t}</td></tr>`).join('')}</tbody>
+    <table class="rank-table mono" style="min-width:620px;">
+      <thead><tr>
+        <th>Nota</th>
+        <th>G – Gravidade<br><span class="pkg-meta">(impacto se nada for feito)</span></th>
+        <th>U – Urgência<br><span class="pkg-meta">(prazo para agir)</span></th>
+        <th>T – Tendência<br><span class="pkg-meta">(evolução se nada for feito)</span></th>
+      </tr></thead>
+      <tbody>${[5,4,3,2,1].map(n=>`<tr><td class="num-cell" style="font-weight:700;">${n}</td><td class="left">${restricaoGutNome('g',n)}</td><td class="left">${restricaoGutNome('u',n)}</td><td class="left">${restricaoGutNome('t',n)}</td></tr>`).join('')}</tbody>
     </table>
     </div>
     <p class="footer-note" style="padding-top:8px;">Classificação = G × U × T. Quanto maior, mais prioridade: <span class="badge badge-critical">≥64</span> <span class="badge badge-warn">≥27</span> <span class="badge badge-good">abaixo disso</span>.</p>
   </details>`;
+}
+// select com a frase inteira de cada nível (não só o número 1-5) — ela pediu depois de ver que os
+// campos G/U/T eram inputs numéricos "pelados": "queria que colocasse isso, e não somente o número
+// na hora de selecionar."
+function restricaoGutSelectHtml(letter, id, selected){
+  const label = letter.toUpperCase();
+  const opts = RESTRICAO_GUT_NIVEIS[letter].map(n=>`<option value="${n.v}" ${String(selected)===String(n.v)?'selected':''}>${n.v} - ${n.nome}</option>`).join('');
+  return `<div style="display:flex; align-items:center; gap:5px;">
+    <span style="width:13px; font-weight:700; flex-shrink:0;" title="${label}">${label}</span>
+    <select id="${id}" style="width:100%; min-width:190px;"><option value="">—</option>${opts}</select>
+  </div>`;
 }
 function restricaoNovaLinhaHtml(){
   const pacoteOpts = LOOKUPS.pacotes.map(n=>`<option value="${n}">`).join('');
@@ -4283,10 +4321,10 @@ function restricaoNovaLinhaHtml(){
     <td class="left"><input id="rnSolucao" placeholder="Observação (opcional)" style="width:100%;"></td>
     <td><select id="rnStatus">${restricaoStatusOptionsHtml('aberto')}</select></td>
     <td>
-      <div style="display:flex; gap:3px;">
-        <input type="number" min="1" max="5" id="rnG" placeholder="G" title="Gravidade" style="width:38px;">
-        <input type="number" min="1" max="5" id="rnU" placeholder="U" title="Urgência" style="width:38px;">
-        <input type="number" min="1" max="5" id="rnT" placeholder="T" title="Tendência" style="width:38px;">
+      <div style="display:flex; flex-direction:column; gap:3px; min-width:190px;">
+        ${restricaoGutSelectHtml('g','rnG')}
+        ${restricaoGutSelectHtml('u','rnU')}
+        ${restricaoGutSelectHtml('t','rnT')}
       </div>
     </td>
     <td style="white-space:nowrap;">
@@ -4333,7 +4371,7 @@ function renderRestricoes(){
               <td class="left">${r.solucao||'—'}</td>
               <td><span class="badge ${restricaoStatusBadge(r.status)}">${restricaoStatusLabel(r.status)}</span></td>
               <td class="num-cell mono">${c!=null?`<span class="badge badge-${band}">${c}</span>`:'—'}</td>
-              ${MY_ROLE==='planejador' ? `<td><button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
+              ${MY_ROLE==='planejador' ? `<td style="white-space:nowrap;"><button type="button" class="btn btn-sm" data-edit-restricao="${r.id}" title="Editar" aria-label="Editar restrição">✎</button> <button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
             </tr>`;
           }).join('') : (RESTRICAO_ADDING ? '' : `<tr><td colspan="${MY_ROLE==='planejador'?10:9}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com essa busca.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
         </tbody>
@@ -4379,9 +4417,12 @@ function wireRestricoes(){
   if(MY_ROLE==='planejador'){
     document.querySelectorAll('tr[data-id]').forEach(tr=>{
       tr.addEventListener('click', e=>{
-        if(e.target.closest('[data-del-restricao]')) return;
+        if(e.target.closest('[data-del-restricao]') || e.target.closest('[data-edit-restricao]')) return;
         openRestricaoModal(tr.dataset.id);
       });
+    });
+    document.querySelectorAll('[data-edit-restricao]').forEach(b=>{
+      b.onclick = e=>{ e.stopPropagation(); openRestricaoModal(b.dataset.editRestricao); };
     });
     document.querySelectorAll('[data-del-restricao]').forEach(b=>{
       b.onclick = async e=>{
@@ -4415,11 +4456,9 @@ function openRestricaoModal(id){
       <div class="form-field"><label>Data de resolução</label><input type="date" id="rfDataResolucao" value="${r&&r.dataResolucao||''}"></div>
       <div class="form-field"><label>Status</label><select id="rfStatus">${restricaoStatusOptionsHtml(r&&r.status)}</select></div>
     </div>
-    <div class="form-row">
-      <div class="form-field"><label>G (Gravidade)</label><input type="number" min="1" max="5" id="rfG" value="${r&&r.g||''}"></div>
-      <div class="form-field"><label>U (Urgência)</label><input type="number" min="1" max="5" id="rfU" value="${r&&r.u||''}"></div>
-      <div class="form-field"><label>T (Tendência)</label><input type="number" min="1" max="5" id="rfT" value="${r&&r.t||''}"></div>
-    </div>
+    <div class="form-field"><label>Gravidade</label>${restricaoGutSelectHtml('g','rfG',r&&r.g)}</div>
+    <div class="form-field"><label>Urgência</label>${restricaoGutSelectHtml('u','rfU',r&&r.u)}</div>
+    <div class="form-field"><label>Tendência</label>${restricaoGutSelectHtml('t','rfT',r&&r.t)}</div>
     <div class="modal-actions">
       ${r?'<button class="btn" id="rfCancel">Cancelar</button>':''}
       <button class="btn btn-primary" id="rfSalvar">${r?'Salvar':'Cadastrar'}</button>
