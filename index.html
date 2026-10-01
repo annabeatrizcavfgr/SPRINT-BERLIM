@@ -243,6 +243,16 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .rank-table tbody tr.restricao-nova{background:var(--accent-soft, var(--surface-2));}
 .rank-table tbody tr.restricao-nova td{padding-top:8px; padding-bottom:8px;}
 .rank-table tbody tr.restricao-nova input, .rank-table tbody tr.restricao-nova select{width:100%; box-sizing:border-box;}
+/* linha inteira tingida pela classificação G.U.T (2026-10-01, pedido dela: "mais coloridinho, como o
+   app que eu te mandei pra extrair os dados" — lá cada linha tinha a cor da faixa; aqui reusamos as
+   MESMAS variáveis --good-soft/--warn-soft/--critical-soft já usadas nos badges, em vez de copiar o
+   hex dela, pra continuar funcionando certo no modo escuro). */
+.rank-table tbody tr.restricao-band-good{background:var(--good-soft);}
+.rank-table tbody tr.restricao-band-warn{background:var(--warn-soft);}
+.rank-table tbody tr.restricao-band-critical{background:var(--critical-soft);}
+.rank-table tbody tr.restricao-band-good.pkg-row:hover,
+.rank-table tbody tr.restricao-band-warn.pkg-row:hover,
+.rank-table tbody tr.restricao-band-critical.pkg-row:hover{filter:brightness(0.96);}
 .pkg-name{font-weight:600;}
 .pkg-meta{font-size:12px; color:var(--text-muted);}
 .bar-track{width:100%; height:6px; border-radius:99px; background:var(--surface-2); overflow:hidden;}
@@ -4372,7 +4382,8 @@ function renderRestricoes(){
             if(MY_ROLE==='planejador' && r.id===RESTRICAO_EDITING_ID) return restricaoLinhaFormHtml(r);
             const c = restricaoCls(r), band = restricaoBand(c);
             const dias = restricaoDias(r);
-            return `<tr class="${MY_ROLE==='planejador'?'pkg-row':''}" data-id="${r.id}" style="${MY_ROLE==='planejador'?'cursor:pointer;':''}">
+            const bandClass = band ? `restricao-band-${band}` : '';
+            return `<tr class="${MY_ROLE==='planejador'?'pkg-row':''} ${bandClass}" data-id="${r.id}" style="${MY_ROLE==='planejador'?'cursor:pointer;':''}">
               <td class="num-cell mono">${r.item}</td>
               <td>${r.servico||'—'}</td>
               <td class="num-cell mono">${r.data?fmtDate2(r.data):'—'}</td>
