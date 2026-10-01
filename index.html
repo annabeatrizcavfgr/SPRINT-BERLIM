@@ -4231,9 +4231,11 @@ function wireScreenTabs(){
 =================================================================== */
 let RESTRICAO_SEARCH = '';
 // linha nova fica direto na tabela (2026-10-01, pedido dela: "não quero que crie caixa pra criar
-// restrição, só linha nova mesmo") — nada de modal pra CADASTRAR; editar uma já existente continua
-// abrindo o modal (ela só reclamou do fluxo de criar).
+// restrição, só linha nova mesmo") — nada de modal, nem pra CADASTRAR nem pra EDITAR (ela pediu os
+// dois separadamente: primeiro só pra criar, depois "nao quero abrir o formulario completo, só quero
+// clicar e poder mudar o texto" — editar vira a MESMA linha, virando um formulário inline no lugar).
 let RESTRICAO_ADDING = false;
+let RESTRICAO_EDITING_ID = null;
 function restricaoStatusLabel(s){ return s==='resolvido' ? 'Resolvido' : s==='em_andamento' ? 'Em andamento' : 'Não iniciado'; }
 function restricaoStatusBadge(s){ return s==='resolvido' ? 'badge-good' : s==='em_andamento' ? 'badge-warn' : 'badge-neutral'; }
 function restricaoStatusOptionsHtml(sel){
@@ -4309,27 +4311,34 @@ function restricaoGutSelectHtml(letter, id, selected){
     <select id="${id}" style="width:100%; min-width:190px;"><option value="">—</option>${opts}</select>
   </div>`;
 }
-function restricaoNovaLinhaHtml(){
+// formulário inline, usado tanto pra CRIAR (r=null, prefixo "rn") quanto pra EDITAR uma restrição já
+// existente (r=o registro, prefixo "re") — mesma linha da tabela vira os campos editáveis, sem modal
+// nenhum nos dois casos.
+function restricaoLinhaFormHtml(r){
   const pacoteOpts = LOOKUPS.pacotes.map(n=>`<option value="${n}">`).join('');
-  return `<tr class="restricao-nova">
-    <td class="num-cell mono">—</td>
-    <td><input id="rnServico" list="rnServicoList" placeholder="Serviço/pacote"><datalist id="rnServicoList">${pacoteOpts}</datalist></td>
-    <td><input type="date" id="rnData"></td>
-    <td class="num-cell mono">—</td>
-    <td><input id="rnEng" placeholder="Responsável"></td>
-    <td class="left"><input id="rnRestricao" placeholder="Descreva a restrição" style="width:100%;"></td>
-    <td class="left"><input id="rnSolucao" placeholder="Observação (opcional)" style="width:100%;"></td>
-    <td><select id="rnStatus">${restricaoStatusOptionsHtml('aberto')}</select></td>
+  const p = r ? 're' : 'rn';
+  const v = k => r && r[k]!=null ? String(r[k]).replace(/"/g,'&quot;') : '';
+  const item = r ? r.item : '—';
+  const dias = r ? (restricaoDias(r)!=null ? restricaoDias(r) : '—') : '—';
+  return `<tr class="restricao-nova" ${r?`data-editing-id="${r.id}"`:''}>
+    <td class="num-cell mono">${item}</td>
+    <td><input id="${p}Servico" list="${p}ServicoList" placeholder="Serviço/pacote" value="${v('servico')}"><datalist id="${p}ServicoList">${pacoteOpts}</datalist></td>
+    <td><input type="date" id="${p}Data" value="${v('data')}"></td>
+    <td class="num-cell mono">${dias}</td>
+    <td><input id="${p}Eng" placeholder="Responsável" value="${v('eng')}"></td>
+    <td class="left"><input id="${p}Restricao" placeholder="Descreva a restrição" style="width:100%;" value="${v('restricao')}"></td>
+    <td class="left"><input id="${p}Solucao" placeholder="Observação (opcional)" style="width:100%;" value="${v('solucao')}"></td>
+    <td><select id="${p}Status">${restricaoStatusOptionsHtml(r&&r.status)}</select></td>
     <td>
       <div style="display:flex; flex-direction:column; gap:3px; min-width:190px;">
-        ${restricaoGutSelectHtml('g','rnG')}
-        ${restricaoGutSelectHtml('u','rnU')}
-        ${restricaoGutSelectHtml('t','rnT')}
+        ${restricaoGutSelectHtml('g',p+'G', r&&r.g)}
+        ${restricaoGutSelectHtml('u',p+'U', r&&r.u)}
+        ${restricaoGutSelectHtml('t',p+'T', r&&r.t)}
       </div>
     </td>
     <td style="white-space:nowrap;">
-      <button class="btn btn-sm btn-primary" id="rnSalvar">Salvar</button>
-      <button class="btn btn-sm" id="rnCancelar">✕</button>
+      <button class="btn btn-sm btn-primary" id="${p}Salvar">Salvar</button>
+      <button class="btn btn-sm" id="${p}Cancelar">✕</button>
     </td>
   </tr>`;
 }
@@ -4347,7 +4356,7 @@ function renderRestricoes(){
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
         <h3 class="section-title" style="margin:0;">🚧 Restrições</h3>
         <input class="search-input" id="restricaoSearch" style="flex:1; min-width:180px; margin:0;" placeholder="Buscar por serviço ou restrição..." value="${RESTRICAO_SEARCH.replace(/"/g,'&quot;')}">
-        ${MY_ROLE==='planejador' && !RESTRICAO_ADDING ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
+        ${MY_ROLE==='planejador' && !RESTRICAO_ADDING && !RESTRICAO_EDITING_ID ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
       <div class="panel-table-wrap">
       <table class="rank-table panel-table">
@@ -4357,8 +4366,9 @@ function renderRestricoes(){
           ${MY_ROLE==='planejador' ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
-          ${MY_ROLE==='planejador' && RESTRICAO_ADDING ? restricaoNovaLinhaHtml() : ''}
+          ${MY_ROLE==='planejador' && RESTRICAO_ADDING ? restricaoLinhaFormHtml(null) : ''}
           ${list.length ? list.map(r=>{
+            if(MY_ROLE==='planejador' && r.id===RESTRICAO_EDITING_ID) return restricaoLinhaFormHtml(r);
             const c = restricaoCls(r), band = restricaoBand(c);
             const dias = restricaoDias(r);
             return `<tr class="${MY_ROLE==='planejador'?'pkg-row':''}" data-id="${r.id}" style="${MY_ROLE==='planejador'?'cursor:pointer;':''}">
@@ -4389,40 +4399,24 @@ function wireRestricoes(){
   if(RESTRICAO_SEARCH){ search.focus(); search.selectionStart = search.selectionEnd = search.value.length; }
   const btnNova = document.getElementById('btnNovaRestricao');
   if(btnNova) btnNova.onclick = ()=>{ RESTRICAO_ADDING = true; renderRestricoes(); };
-  const rnServico = document.getElementById('rnServico');
-  if(rnServico) rnServico.focus();
-  const rnCancelar = document.getElementById('rnCancelar');
-  if(rnCancelar) rnCancelar.onclick = ()=>{ RESTRICAO_ADDING = false; renderRestricoes(); };
-  const rnSalvar = document.getElementById('rnSalvar');
-  if(rnSalvar) rnSalvar.onclick = async ()=>{
-    const toInt = v=>{ const n=parseInt(v,10); return (v==='' || isNaN(n)) ? null : Math.max(1,Math.min(5,n)); };
-    const restricao = document.getElementById('rnRestricao').value.trim();
-    if(!restricao){ toast('Descreva a restrição.', 'warn'); return; }
-    await saveRestricao({
-      servico: document.getElementById('rnServico').value.trim(),
-      data: document.getElementById('rnData').value || null,
-      eng: document.getElementById('rnEng').value.trim(),
-      restricao,
-      solucao: document.getElementById('rnSolucao').value.trim(),
-      dataResolucao: null,
-      status: document.getElementById('rnStatus').value,
-      g: toInt(document.getElementById('rnG').value),
-      u: toInt(document.getElementById('rnU').value),
-      t: toInt(document.getElementById('rnT').value),
-    });
-    RESTRICAO_ADDING = false;
-    toast('Restrição cadastrada.');
-    renderRestricoes();
-  };
+  wireRestricaoForm('rn', null);
+  if(RESTRICAO_EDITING_ID) wireRestricaoForm('re', RESTRICOES.find(x=>x.id===RESTRICAO_EDITING_ID));
   if(MY_ROLE==='planejador'){
     document.querySelectorAll('tr[data-id]').forEach(tr=>{
       tr.addEventListener('click', e=>{
         if(e.target.closest('[data-del-restricao]') || e.target.closest('[data-edit-restricao]')) return;
-        openRestricaoModal(tr.dataset.id);
+        RESTRICAO_ADDING = false;
+        RESTRICAO_EDITING_ID = tr.dataset.id;
+        renderRestricoes();
       });
     });
     document.querySelectorAll('[data-edit-restricao]').forEach(b=>{
-      b.onclick = e=>{ e.stopPropagation(); openRestricaoModal(b.dataset.editRestricao); };
+      b.onclick = e=>{
+        e.stopPropagation();
+        RESTRICAO_ADDING = false;
+        RESTRICAO_EDITING_ID = b.dataset.editRestricao;
+        renderRestricoes();
+      };
     });
     document.querySelectorAll('[data-del-restricao]').forEach(b=>{
       b.onclick = async e=>{
@@ -4440,49 +4434,44 @@ function wireRestricoes(){
     });
   }
 }
-function openRestricaoModal(id){
-  const r = id ? RESTRICOES.find(x=>x.id===id) : null;
-  const pacoteOpts = LOOKUPS.pacotes.map(n=>`<option value="${n}">`).join('');
-  openModal(`
-    <h3>${r?'Editar restrição':'Nova restrição'}</h3>
-    <div class="form-row">
-      <div class="form-field"><label>Serviço/pacote</label><input id="rfServico" list="rfServicoList" value="${(r&&r.servico||'').replace(/"/g,'&quot;')}"><datalist id="rfServicoList">${pacoteOpts}</datalist></div>
-      <div class="form-field"><label>Data</label><input type="date" id="rfData" value="${r&&r.data||''}"></div>
-    </div>
-    <div class="form-field"><label>Eng. responsável</label><input id="rfEng" value="${(r&&r.eng||'').replace(/"/g,'&quot;')}"></div>
-    <div class="form-field"><label>Restrição</label><textarea id="rfRestricao">${r&&r.restricao||''}</textarea></div>
-    <div class="form-field"><label>Solução / observação</label><textarea id="rfSolucao">${r&&r.solucao||''}</textarea></div>
-    <div class="form-row">
-      <div class="form-field"><label>Data de resolução</label><input type="date" id="rfDataResolucao" value="${r&&r.dataResolucao||''}"></div>
-      <div class="form-field"><label>Status</label><select id="rfStatus">${restricaoStatusOptionsHtml(r&&r.status)}</select></div>
-    </div>
-    <div class="form-field"><label>Gravidade</label>${restricaoGutSelectHtml('g','rfG',r&&r.g)}</div>
-    <div class="form-field"><label>Urgência</label>${restricaoGutSelectHtml('u','rfU',r&&r.u)}</div>
-    <div class="form-field"><label>Tendência</label>${restricaoGutSelectHtml('t','rfT',r&&r.t)}</div>
-    <div class="modal-actions">
-      ${r?'<button class="btn" id="rfCancel">Cancelar</button>':''}
-      <button class="btn btn-primary" id="rfSalvar">${r?'Salvar':'Cadastrar'}</button>
-    </div>`);
-  if(r) document.getElementById('rfCancel').onclick = closeModal;
-  document.getElementById('rfSalvar').onclick = async ()=>{
-    const toInt = v=>{ const n=parseInt(v,10); return (v==='' || isNaN(n)) ? null : Math.max(1,Math.min(5,n)); };
+// liga os botões Salvar/✕ de UM formulário inline (`prefix` casa com os ids gerados por
+// `restricaoLinhaFormHtml`) — reusado tanto pra criar (`existing=null`) quanto pra editar
+// (`existing`=o registro original, só pra saber o `id` e preservar `dataResolucao`, que não tem
+// campo nessa versão simplificada/inline).
+function wireRestricaoForm(prefix, existing){
+  const btnSalvar = document.getElementById(prefix+'Salvar');
+  if(!btnSalvar) return;
+  const servicoInput = document.getElementById(prefix+'Servico');
+  if(servicoInput) servicoInput.focus();
+  document.getElementById(prefix+'Cancelar').onclick = ()=>{
+    if(existing) RESTRICAO_EDITING_ID = null; else RESTRICAO_ADDING = false;
+    renderRestricoes();
+  };
+  btnSalvar.onclick = async ()=>{
+    const toInt = v=>{ const n=parseInt(v,10); return isNaN(n) ? null : n; };
+    const restricao = document.getElementById(prefix+'Restricao').value.trim();
+    if(!restricao){ toast('Descreva a restrição.', 'warn'); return; }
     const entry = {
-      servico: document.getElementById('rfServico').value.trim(),
-      data: document.getElementById('rfData').value || null,
-      eng: document.getElementById('rfEng').value.trim(),
-      restricao: document.getElementById('rfRestricao').value.trim(),
-      solucao: document.getElementById('rfSolucao').value.trim(),
-      dataResolucao: document.getElementById('rfDataResolucao').value || null,
-      status: document.getElementById('rfStatus').value,
-      g: toInt(document.getElementById('rfG').value),
-      u: toInt(document.getElementById('rfU').value),
-      t: toInt(document.getElementById('rfT').value),
+      servico: document.getElementById(prefix+'Servico').value.trim(),
+      data: document.getElementById(prefix+'Data').value || null,
+      eng: document.getElementById(prefix+'Eng').value.trim(),
+      restricao,
+      solucao: document.getElementById(prefix+'Solucao').value.trim(),
+      dataResolucao: existing ? (existing.dataResolucao||null) : null,
+      status: document.getElementById(prefix+'Status').value,
+      g: toInt(document.getElementById(prefix+'G').value),
+      u: toInt(document.getElementById(prefix+'U').value),
+      t: toInt(document.getElementById(prefix+'T').value),
     };
-    if(!entry.restricao){ toast('Descreva a restrição.', 'warn'); return; }
-    if(r) await updateRestricao(r.id, entry);
-    else await saveRestricao(entry);
-    closeModal();
-    toast(r?'Restrição atualizada.':'Restrição cadastrada.');
+    if(existing){
+      await updateRestricao(existing.id, entry);
+      RESTRICAO_EDITING_ID = null;
+      toast('Restrição atualizada.');
+    } else {
+      await saveRestricao(entry);
+      RESTRICAO_ADDING = false;
+      toast('Restrição cadastrada.');
+    }
     renderRestricoes();
   };
 }
