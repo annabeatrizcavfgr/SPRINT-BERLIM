@@ -43,12 +43,14 @@
      escuro (--head) nos cabeçalhos de tabela; Montserrat nos títulos e Inter no texto — igual à tela de
      entrada. Sem rede pro Google Fonts, cai no Segoe UI/Arial de sempre. */
   --head:#3E4659;
+  /* azul de informação/dados (o azul de antes da troca pro vermelho de marca): totais do mapa, barras do Pareto, botão Registrar — vermelho em dado parece problema */
+  --info:#1F4E79; --info-strong:#153A5B; --info-soft:#E5EDF4;
   --font-display: 'Montserrat', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif;
   --font-body: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif;
   --font-mono: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif;
 }
-@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --head:#2C3744; } }
-:root[data-theme="dark"]{ --head:#2C3744; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --head:#2C3744; --info:#6C9FCB; --info-strong:#93BEE0; --info-soft:#1F3546; } }
+:root[data-theme="dark"]{ --head:#2C3744; --info:#6C9FCB; --info-strong:#93BEE0; --info-soft:#1F3546; }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#10161C;
@@ -149,6 +151,8 @@ a{color:var(--accent);}
 .btn:active{transform:translateY(1px);}
 .btn-primary{background:var(--accent); border-color:var(--accent); color:#fff;}
 .btn-primary:hover{background:var(--accent-strong); border-color:var(--accent-strong);}
+.btn-info{background:var(--info); border-color:var(--info); color:#fff;}
+.btn-info:hover{background:var(--info-strong); border-color:var(--info-strong);}
 .btn-ghost{background:transparent; border-color:transparent;}
 .btn-ghost:hover{background:var(--surface-2); border-color:var(--border); box-shadow:none;}
 .btn-sm{padding:6px 10px; font-size:12px;}
@@ -247,7 +251,7 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .badge-warn{background:var(--warn-soft); color:var(--warn);}
 .badge-critical{background:var(--critical-soft); color:var(--critical);}
 .badge-neutral{background:var(--surface-2); color:var(--text-muted);}
-.badge-accent{background:var(--accent-soft); color:var(--accent-strong);}
+.badge-accent{background:var(--info-soft); color:var(--info-strong);}
 .badge-del{
   background:transparent; border:none; padding:0; margin:0; color:inherit; font:inherit;
   font-size:12px; line-height:1; cursor:pointer; opacity:.65;
@@ -275,13 +279,6 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
   text-align:center; font-size:11.5px; color:var(--text-muted); text-transform:uppercase;
   letter-spacing:.03em; padding:0 10px 8px 10px; font-weight:700; border-bottom:1px solid var(--border);
 }
-/* cabeçalho escuro em TODAS as tabelas do app (2026-10-05) — mesmo da Matriz GUT, pra tudo parecer um
-   produto só. O "th" solto (fora de thead) continua com o estilo claro de antes. */
-.rank-table thead th{
-  background:var(--head); color:#fff; padding:10px 10px; border-bottom:none; font-weight:700;
-}
-.rank-table thead th:first-child{border-top-left-radius:9px;}
-.rank-table thead th:last-child{border-top-right-radius:9px;}
 .rank-table th:first-child, .rank-table td:first-child{text-align:left;}
 .rank-table td{padding:11px 10px; border-bottom:1px solid var(--border); vertical-align:middle; text-align:center;}
 .rank-table tbody tr.pkg-row{cursor:pointer; transition:background .1s;}
@@ -350,7 +347,7 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .restricao-table td.restricao-lock{cursor:not-allowed;}
 .restricao-aviso{
   margin:0 0 12px; padding:9px 12px; border-radius:8px; font-size:13px; line-height:1.45;
-  background:var(--accent-soft, var(--surface-2)); border:1px solid var(--border); color:var(--text);
+  background:var(--info-soft, var(--surface-2)); border:1px solid var(--border); color:var(--text);
 }
 .restricao-table td.restricao-editing{box-shadow:inset 0 0 0 2px #3E4659; background:var(--surface);}
 .restricao-table td.restricao-editing, .restricao-table td.restricao-draft-cell{padding:4px;}
@@ -359,7 +356,7 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
   border:1px solid var(--border); border-radius:6px; background:#fff; color:#222; text-align:left; resize:none;
 }
 .restricao-edit:focus{outline:2px solid #3E4659; outline-offset:-1px;}
-.restricao-table tr.restricao-draft-row td{background:var(--accent-soft, var(--surface-2));}
+.restricao-table tr.restricao-draft-row td{background:var(--info-soft, var(--surface-2));}
 .restricao-table td.restricao-draft-acoes{padding:4px; white-space:nowrap; text-align:center;}
 .restricao-draft-acoes .btn{padding:3px 6px; margin:0 1px; min-width:0;}
 .restricao-vazio{font-size:11px; color:var(--text-muted); font-style:italic;}
@@ -372,7 +369,7 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
   background:transparent; color:var(--text); font-size:13px; cursor:pointer;
 }
 .restricao-menu button:hover{background:var(--surface-2);}
-.restricao-menu button.ativo{font-weight:700; background:var(--accent-soft, var(--surface-2));}
+.restricao-menu button.ativo{font-weight:700; background:var(--info-soft, var(--surface-2));}
 .panel-table.restricao-table{border-collapse:separate; border-spacing:0; font-size:13px;}
 .panel-table.restricao-table th, .panel-table.restricao-table td{white-space:normal; padding:8px 7px;}
 .panel-table.restricao-table thead th{
@@ -501,9 +498,9 @@ svg.chart{width:100%; height:auto; display:block; min-width:480px;}
 .chart-tag-text{font-family:var(--font-mono); font-size:9.5px; font-weight:700; font-variant-numeric:tabular-nums;}
 /* barras/rótulos clicáveis do Pareto de causas (ver svgPareto/wireParetoBars) — realce simples no
    elemento selecionado; fill em CSS vence o atributo de apresentação do SVG, por isso funciona nas
-   barras (que já nascem com fill="var(--accent)" inline). */
+   barras (que já nascem com fill="var(--info)" inline). */
 [data-causa-nome]{cursor:pointer;}
-.pareto-bar-selected{fill:var(--accent-strong) !important; font-weight:700;}
+.pareto-bar-selected{fill:var(--info-strong) !important; font-weight:700;}
 
 .form-field{display:flex; flex-direction:column; gap:5px; margin-bottom:12px;}
 .form-field label{font-size:12px; font-weight:600; color:var(--text-muted);}
@@ -525,7 +522,7 @@ svg.chart{width:100%; height:auto; display:block; min-width:480px;}
   text-align:center; color:var(--text-muted); background:var(--surface-2);
   transition:border-color .15s, background .15s;
 }
-.dropzone.drag{border-color:var(--accent); background:var(--accent-soft);}
+.dropzone.drag{border-color:var(--info); background:var(--info-soft);}
 
 /* modal */
 #modalRoot{position:fixed; inset:0; z-index:100; display:none; align-items:center; justify-content:center; padding:20px;}
@@ -544,7 +541,7 @@ svg.chart{width:100%; height:auto; display:block; min-width:480px;}
 @keyframes toastIn{from{opacity:0; transform:translateY(6px);} to{opacity:1;}}
 
 .progress-line{height:6px; border-radius:99px; background:var(--surface-2); overflow:hidden; margin-top:10px;}
-.progress-line > div{height:100%; background:var(--accent); transition:width .15s;}
+.progress-line > div{height:100%; background:var(--info); transition:width .15s;}
 
 .causa-item{border:1px solid var(--border); border-radius:9px; padding:10px 12px; margin-bottom:8px; background:var(--surface-2);}
 .causa-item .causa-head{display:flex; justify-content:space-between; font-size:12px; color:var(--text-muted); margin-bottom:3px;}
@@ -606,7 +603,7 @@ svg.chart{width:100%; height:auto; display:block; min-width:480px;}
    ação (scrollbar aparece) quando a lista de pacotes é grande o bastante pra passar de 70vh; com poucos
    pacotes fica visualmente idêntico a antes. */
 .panel-table-wrap{overflow-x:auto; overflow-y:auto; max-height:70vh;}
-.panel-table thead th{position:sticky; top:0; background:var(--head); z-index:1;}
+.panel-table thead th{position:sticky; top:0; background:var(--surface); z-index:1;}
 .week-cell{
   display:inline-flex; flex-direction:column; align-items:center; gap:2px; padding:5px 8px;
   border-radius:8px; min-width:56px; font-family:var(--font-mono);
@@ -659,7 +656,7 @@ svg.chart{width:100%; height:auto; display:block; min-width:480px;}
   background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow);
   padding:12px 10px; display:flex; flex-direction:column; align-items:center; gap:5px; text-align:center;
 }
-.mapa-status-card.total{background:var(--accent-soft); border-color:color-mix(in srgb, var(--accent) 30%, transparent);}
+.mapa-status-card.total{background:var(--info-soft); border-color:color-mix(in srgb, var(--info) 30%, transparent);}
 .mapa-status-swatch{width:13px; height:13px; border-radius:4px; flex:none;}
 /* min-height reserva o espaço de 2 linhas pro rótulo (o mais comprido, "Concluído até a semana
    anterior", quebra em 2; os outros cabem em 1) — sem isso os números abaixo ficavam em alturas
@@ -668,9 +665,9 @@ svg.chart{width:100%; height:auto; display:block; min-width:480px;}
   font-size:10.5px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.02em;
   line-height:1.25; min-height:26px; display:flex; align-items:center; justify-content:center;
 }
-.mapa-status-card.total .mapa-status-label{color:var(--accent-strong);}
+.mapa-status-card.total .mapa-status-label{color:var(--info-strong);}
 .mapa-status-count{font-family:var(--font-display); font-size:22px; font-weight:700; line-height:1.1;}
-.mapa-status-card.total .mapa-status-count{color:var(--accent-strong);}
+.mapa-status-card.total .mapa-status-count{color:var(--info-strong);}
 
 /* mapa: mesmos 5 números, layout "side" — coluna ao lado do mapa (Painel gerencial, onde o card do
    mapa tem a tela toda de largura, ao contrário do Sprint onde ele divide espaço com a tabela) */
@@ -678,11 +675,11 @@ svg.chart{width:100%; height:auto; display:block; min-width:480px;}
 @media (max-width:640px){ .mapa-body{grid-template-columns:1fr;} }
 .mapa-side-col{display:flex; flex-direction:column; gap:10px;}
 .mapa-side-total{
-  background:var(--accent-soft); border:1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  background:var(--info-soft); border:1px solid color-mix(in srgb, var(--info) 30%, transparent);
   border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:2px;
 }
-.mapa-side-total-label{font-size:11px; color:var(--accent-strong); font-weight:600; text-transform:uppercase; letter-spacing:.03em;}
-.mapa-side-total-value{font-family:var(--font-display); font-size:26px; font-weight:700; color:var(--accent-strong); line-height:1.1;}
+.mapa-side-total-label{font-size:11px; color:var(--info-strong); font-weight:600; text-transform:uppercase; letter-spacing:.03em;}
+.mapa-side-total-value{font-family:var(--font-display); font-size:26px; font-weight:700; color:var(--info-strong); line-height:1.1;}
 .mapa-side-list{display:flex; flex-direction:column; border:1px solid var(--border); border-radius:10px; overflow:hidden;}
 .mapa-side-item{
   display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border);
@@ -3938,7 +3935,7 @@ function svgFreqChart(freq){
     const y = i*rowH+6;
     const barW = (it.v/max)*380;
     rows += `<text x="0" y="${y+14}" class="chart-label" style="font-size:11px;">${it.name}</text>
-      <rect x="250" y="${y}" width="${barW}" height="16" rx="4" fill="var(--accent)"/>
+      <rect x="250" y="${y}" width="${barW}" height="16" rx="4" fill="var(--info)"/>
       <text x="${254+barW}" y="${y+13}" class="chart-label">${it.v}</text>`;
   });
   return `<div class="chart-wrap"><svg viewBox="0 0 ${w} ${h}" class="chart" style="min-width:520px;">${rows}</svg></div>`;
@@ -3982,8 +3979,8 @@ function svgPareto(items){
     const barH = (d.count/maxCount)*plotH;
     const y = padT + plotH - barH;
     const cy = padT + plotH - d.cumPct*plotH;
-    bars += `<rect data-causa-nome="${nomeAttr}" x="${x}" y="${y}" width="${barW}" height="${Math.max(barH,0)}" rx="4" fill="var(--accent)">${titleTag}</rect>`;
-    tags += svgTag(cx, y, d.count+' · '+pctFmt(d.pct), 'var(--accent)', '#fff');
+    bars += `<rect data-causa-nome="${nomeAttr}" x="${x}" y="${y}" width="${barW}" height="${Math.max(barH,0)}" rx="4" fill="var(--info)">${titleTag}</rect>`;
+    tags += svgTag(cx, y, d.count+' · '+pctFmt(d.pct), 'var(--info)', '#fff');
     linePts.push(`${cx},${cy}`);
     dots += `<circle data-causa-nome="${nomeAttr}" cx="${cx}" cy="${cy}" r="4" fill="var(--critical)">${titleTag}</circle>`;
     labels += `<text data-causa-nome="${nomeAttr}" x="0" y="0" transform="translate(${cx} ${h-padB+16}) rotate(-40)" text-anchor="end" class="chart-label" style="font-size:11.5px;">${truncateLabel(d.name,26)}${titleTag}</text>`;
@@ -5554,7 +5551,7 @@ function renderExpandedPanel(p){
           <label>Observação</label>
           <input type="text" id="expCausaObs" placeholder="O que foi visto na frente de serviço…">
         </div>
-        <button class="btn btn-primary" id="expCausaSubmit" data-idx="${pacoteIdx}" style="align-self:flex-end;">Registrar</button>
+        <button class="btn btn-info" id="expCausaSubmit" data-idx="${pacoteIdx}" style="align-self:flex-end;">Registrar</button>
       </div>` : ''}
       <div class="pill-row">
         <!-- visualizador (2026-09-30, pedido dela: "visualizadores não devem ter poder pra ajustar
