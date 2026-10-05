@@ -463,6 +463,22 @@ details.card summary .ind-pills{text-transform:none; letter-spacing:0; font-fami
 .ind-bar-fill{display:block; height:100%; border-radius:4px; background:var(--accent);}
 .ind-bar-fill.vazio{background:var(--border);}
 .ind-bar-n{font-weight:800; font-family:var(--font-mono);}
+/* IRR (período total) */
+.irr-kpi{display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin:2px 0 12px;}
+.irr-pct{font-family:var(--font-display); font-size:38px; font-weight:800; line-height:1;}
+.irr-good-t{color:var(--good);} .irr-warn-t{color:var(--warn);} .irr-crit-t{color:var(--critical);}
+.irr-tabela{font-size:12.5px;}
+.irr-tabela th, .irr-tabela td{white-space:nowrap; min-width:64px;}
+.irr-tabela td{padding:6px 8px; line-height:1.2;}
+.irr-tabela td span{display:block; font-size:10.5px; font-weight:500; opacity:.8;}
+.irr-tabela .irr-nome{text-align:left; font-weight:700; min-width:150px; position:sticky; left:0; background:var(--surface); z-index:1;}
+.irr-tabela thead th:first-child{position:sticky; left:0; z-index:2;}
+.irr-tabela tr.irr-todas td{border-bottom:2px solid var(--border);}
+.irr-good{background:var(--good-soft); color:var(--good);}
+.irr-warn{background:var(--warn-soft); color:var(--warn);}
+.irr-crit{background:var(--critical-soft); color:var(--critical);}
+.irr-nd{color:var(--text-muted); font-size:11px;}
+.irr-leg{display:inline-block; padding:1px 8px; border-radius:999px; font-weight:700;}
 .restricao-table .rs-lbl{cursor:pointer; user-select:none;}
 .restricao-table .rs-lbl:hover{text-decoration:underline;}
 .restricao-table .rs-ind{margin-left:4px; font-size:9px; opacity:.95;}
@@ -5527,7 +5543,8 @@ function restricaoMostraPrevia(nomeArquivo, res, soAbertas){
      mostram o quadro completo do período (atrasadas são um subconjunto das em aberto).
    - Barras em vermelho FGR (ela pediu depois de ver — antes eu tinha deixado azul pra não parecer problema).
    - O bloco é minimizável (<details>), como o Painel gerencial; as contagens ficam na linha do título.
-   Sem o "Índice de Remoção de Restrições" (ela pediu pra não trazer).
+   O "Índice de Remoção de Restrições" (IRR) entrou numa segunda rodada, em versão de período total — ver
+   restricaoIRR().
 =================================================================== */
 let RESTRICAO_IND = {mes:'', escopo:'abertas'}; // reset em initDb
 let RESTRICAO_IND_OPEN = lsGet('jb_restricao_ind_open', true); // aberto/minimizado — preferência do navegador, como no Painel gerencial
@@ -5627,6 +5644,7 @@ function renderRestricaoIndicadores(){
       ${restricaoIndBarras('Quantidade de restrições por responsável', escopoRot+' · quem aparece junto (ex.: ANA/ARTHUR) conta pra cada um', d.porResp)}
       ${restricaoIndBarras('Quantidade de restrições por serviço', escopoRot, d.porServico)}
     </div>
+    ${restricaoIRRHtml()}
     ${(d.semPrazo || d.semNota) ? `<p class="footer-note" style="padding:8px 0 0; text-align:left;">${d.semPrazo ? `${d.semPrazo} restrição(ões) em aberto estão sem data de resolução (prazo) e por isso não entram em "dias em atraso". ` : ''}${d.semNota ? `${d.semNota} em aberto estão sem nota G, U ou T e ficam fora do ranking de grau.` : ''}</p>` : ''}
   </details>`;
   document.getElementById('restricaoIndDetails').addEventListener('toggle', e=>{
@@ -5634,6 +5652,70 @@ function renderRestricaoIndicadores(){
   });
   document.getElementById('indMes').onchange = e=>{ RESTRICAO_IND.mes = e.target.value; renderRestricaoIndicadores(); };
   box.querySelectorAll('[data-escopo]').forEach(b=>{ b.onclick = ()=>{ RESTRICAO_IND.escopo = b.dataset.escopo; renderRestricaoIndicadores(); }; });
+}
+/* ---- Índice de Remoção de Restrições (IRR) — PERÍODO TOTAL (2026-10-05) ----
+   Ela tinha pedido pra ficar de fora e depois pediu de volta, "completo, por período total": em vez das 5
+   semanas de um mês só, cobre todos os meses de uma vez. Definição (a do app de referência, com um ajuste):
+   - O mês de cada restrição é o do PRAZO (data de resolução). Sem prazo não dá pra saber a que período
+     pertence, então fica fora (a tela diz quantas ficaram — as importadas do Excel começam todas assim).
+   - IRR = concluídas ÷ (concluídas + em aberto com prazo JÁ VENCIDO). Em aberto com prazo no futuro é "a vencer":
+     fica fora do índice (senão todo mês futuro mostraria 0% e pareceria fracasso). Concluída entra sempre.
+   - Linha "TODAS" = mês a mês de tudo; uma linha por responsável (quem aparece junto conta pra cada um), com
+     coluna TOTAL do período inteiro. Independe do filtro de mês dos indicadores acima. */
+function restricaoIRR(){
+  const todas = RESTRICOES.map((r,i)=>({...r, item:i+1}));
+  const comPrazo = todas.filter(r=>restricaoParseDia(r.dataResolucao));
+  const novaCel = ()=>({conc:0, venc:0, aVencer:0});
+  const soma = (c, r)=>{ if(r.status==='resolvido') c.conc++; else if(restricaoAtraso(r)>0) c.venc++; else c.aVencer++; };
+  const meses = [...new Set(comPrazo.map(r=>r.dataResolucao.slice(0,7)))].sort();
+  const linhas = new Map();
+  const linha = (nome, vazio)=>{
+    const k = vazio ? '\u0000vazio' : restricaoNorm(nome);
+    if(!linhas.has(k)) linhas.set(k, {label: nome.toUpperCase(), vazio, total: novaCel(), meses: new Map()});
+    return linhas.get(k);
+  };
+  const todasLinha = {label:'TODAS', total: novaCel(), meses: new Map()};
+  const aplica = (l, r)=>{
+    soma(l.total, r);
+    const ym = r.dataResolucao.slice(0,7);
+    if(!l.meses.has(ym)) l.meses.set(ym, novaCel());
+    soma(l.meses.get(ym), r);
+  };
+  comPrazo.forEach(r=>{
+    aplica(todasLinha, r);
+    const pessoas = restricaoPessoas(r.eng);
+    (pessoas.length ? pessoas.map(p=>linha(p,false)) : [linha('Sem responsável', true)]).forEach(l=>aplica(l, r));
+  });
+  const porPessoa = [...linhas.values()].sort((a,b)=> (a.vazio-b.vazio) || a.label.localeCompare(b.label,'pt'));
+  return {meses, todasLinha, porPessoa, semPrazo: todas.length - comPrazo.length, comPrazo: comPrazo.length};
+}
+function restricaoIRRCelula(c){
+  const base = c.conc + c.venc;
+  if(!base) return c.aVencer ? `<td class="irr-nd" title="${c.aVencer} a vencer — ainda fora do índice">${c.aVencer} a vencer</td>` : '<td class="irr-nd">·</td>';
+  const p = c.conc / base;
+  const cls = p>=0.8 ? 'irr-good' : p>=0.5 ? 'irr-warn' : 'irr-crit';
+  return `<td class="${cls}" title="${c.conc} concluída(s) de ${base} (concluídas + vencidas em aberto)${c.aVencer?` · ${c.aVencer} a vencer fora do índice`:''}"><strong>${Math.round(p*100)}%</strong><span>${c.conc}/${base}</span></td>`;
+}
+function restricaoIRRHtml(){
+  const d = restricaoIRR();
+  const tot = d.todasLinha.total, base = tot.conc + tot.venc;
+  const p = base ? tot.conc/base : null;
+  const mesCab = ym=>{ const [a,m] = ym.split('-'); return RESTRICAO_MESES_PT[Number(m)-1].slice(0,3)+'/'+a.slice(2); };
+  const linhaHtml = (l, destaque)=>`<tr${destaque?' class="irr-todas"':''}><td class="irr-nome">${restricaoEsc(l.label)}</td>${restricaoIRRCelula(l.total)}${d.meses.map(ym=>restricaoIRRCelula(l.meses.get(ym) || novaCelIRR())).join('')}</tr>`;
+  function novaCelIRR(){ return {conc:0, venc:0, aVencer:0}; }
+  return `<div class="ind-box" style="margin-top:14px;">
+    <div class="ind-titulo">Índice de Remoção de Restrições (IRR) — período total</div>
+    <div class="pkg-meta" style="margin:0 0 10px;">Concluídas ÷ (concluídas + em aberto com prazo já vencido), mês a mês pelo prazo (data de resolução). Não depende do filtro de mês acima.</div>
+    ${d.comPrazo ? `
+      <div class="irr-kpi">
+        <div class="irr-pct ${p==null?'':p>=0.8?'irr-good-t':p>=0.5?'irr-warn-t':'irr-crit-t'}">${p==null?'—':Math.round(p*100)+'%'}</div>
+        <div class="pkg-meta"><strong>${tot.conc}</strong> concluída(s) de <strong>${base}</strong> que já venceram ou foram concluídas${tot.aVencer?` · ${tot.aVencer} a vencer (prazo futuro, fora do índice)`:''}</div>
+      </div>
+      <div style="overflow-x:auto;"><table class="rank-table restricao-ind-table irr-tabela"><thead><tr><th>Responsável</th><th>Total</th>${d.meses.map(ym=>`<th>${mesCab(ym)}</th>`).join('')}</tr></thead>
+        <tbody>${linhaHtml(d.todasLinha, true)}${d.porPessoa.map(l=>linhaHtml(l,false)).join('')}</tbody></table></div>
+      <p class="footer-note" style="padding:8px 0 0; text-align:left;">Cores: <span class="irr-leg irr-good">80% ou mais</span> <span class="irr-leg irr-warn">50% a 79%</span> <span class="irr-leg irr-crit">abaixo de 50%</span> · "a vencer" = prazo no futuro. ${d.semPrazo ? `${d.semPrazo} restrição(ões) estão sem data de resolução (prazo) e ficam fora do índice — preencha a data de resolução pra elas entrarem.` : ''}</p>
+    ` : '<p class="empty-note">Nenhuma restrição tem data de resolução (prazo) ainda. Preencha a data de resolução pra o índice aparecer.</p>'}
+  </div>`;
 }
 function restricaoMesRotulo(ym){ const [a,m] = ym.split('-'); return RESTRICAO_MESES_PT[Number(m)-1]+'/'+a; }
 function pctFmt(v){ return v==null ? '—' : Math.round(v*100)+'%'; }
