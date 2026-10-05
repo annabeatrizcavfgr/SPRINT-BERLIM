@@ -243,37 +243,63 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .rank-table tbody tr.restricao-nova{background:var(--accent-soft, var(--surface-2));}
 .rank-table tbody tr.restricao-nova td{padding-top:8px; padding-bottom:8px;}
 .rank-table tbody tr.restricao-nova input, .rank-table tbody tr.restricao-nova select{width:100%; box-sizing:border-box;}
-/* linha inteira tingida pela classificação G.U.T (2026-10-01, pedido dela: "mais coloridinho, como o
-   app que eu te mandei pra extrair os dados" — lá cada linha tinha a cor da faixa; aqui reusamos as
-   MESMAS variáveis --good-soft/--warn-soft/--critical-soft já usadas nos badges, em vez de copiar o
-   hex dela, pra continuar funcionando certo no modo escuro). */
-.rank-table tbody tr.restricao-band-good{background:var(--good-soft);}
-.rank-table tbody tr.restricao-band-warn{background:var(--warn-soft);}
-.rank-table tbody tr.restricao-band-critical{background:var(--critical-soft);}
-.rank-table tbody tr.restricao-band-good.pkg-row:hover,
-.rank-table tbody tr.restricao-band-warn.pkg-row:hover,
-.rank-table tbody tr.restricao-band-critical.pkg-row:hover{filter:brightness(0.96);}
-/* os badges (status/classificação) usam a MESMA cor *-soft do fundo da linha — sem isso o número da
-   classificação "sumia" dentro da própria linha colorida. Dá um fundo sólido+borda só quando o badge
-   está dentro de uma linha tingida, pra continuar legível (ela reportou: "eu queria ver a
-   classificação e nao que ficasse como resumo"). */
-.rank-table tbody tr.restricao-band-good .badge,
-.rank-table tbody tr.restricao-band-warn .badge,
-.rank-table tbody tr.restricao-band-critical .badge{
-  background:var(--surface); border:1px solid currentColor;
+/* ---- Tabela de Restrições, estética do app de referência dela (2026-10-05): cabeçalho escuro,
+   grade fina, pílulas coloridas pra status/nível/classificação, célula de prazo vencido em rosa com
+   bolinha vermelha de dias de atraso. Seletores com ".panel-table.restricao-table" (duas classes)
+   de propósito: as regras genéricas de ".panel-table" vêm DEPOIS no arquivo (nowrap, cabeçalho
+   sticky com fundo claro) e ganhariam de um seletor mais fraco, mesmo com a mesma especificidade. */
+.restricao-wrap{border:1px solid var(--border); border-radius:10px;}
+.restricao-table tr.restricao-nova input, .restricao-table tr.restricao-nova select{font-size:11.5px; padding:3px 3px; min-width:0;}
+.restricao-table tr.restricao-nova input[type="date"]{width:104px;}
+.restricao-table tr.restricao-nova td.left input{min-width:120px;}
+.panel-table.restricao-table{border-collapse:separate; border-spacing:0; font-size:13px;}
+.panel-table.restricao-table th, .panel-table.restricao-table td{white-space:normal; padding:8px 7px;}
+.panel-table.restricao-table thead th{
+  background:#3E4659; color:#fff; font-size:11.5px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.02em; border-bottom:none; border-right:1px solid rgba(255,255,255,.14);
+  vertical-align:middle; padding:10px 7px;
 }
-/* a tabela de Restrições tem texto longo (restrição/observação/G·U·T) — ".panel-table" por padrão
-   força white-space:nowrap em tudo (bom pras tabelas numéricas do Painel Gerencial, ruim aqui: cada
-   coluna de texto virava uma linha só, esticando a tabela e forçando rolagem horizontal). Libera o
-   quebra-linha e limita a largura das colunas de texto livre, pra caber na tela sem scroll
-   (2026-10-01, pedido dela: "nao ficou bom, precisamos dar um jeito de caber na tela"). */
-.panel-table.restricao-table th, .panel-table.restricao-table td{white-space:normal;}
-.restricao-table td.left{max-width:170px;}
-.restricao-table .restricao-gut-cell{font-size:12.5px; line-height:1.6; min-width:145px; max-width:150px;}
-.restricao-table .restricao-gut-cell div{color:var(--text-muted);}
-.restricao-table .restricao-servico-cell{
-  max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+.panel-table.restricao-table thead th:last-child{border-right:none;}
+.panel-table.restricao-table tbody td{border-bottom:1px solid var(--border); border-right:1px solid var(--border);}
+.panel-table.restricao-table tbody td:last-child{border-right:none;}
+.panel-table.restricao-table tbody tr:last-child td{border-bottom:none;}
+.restricao-table td.left{max-width:150px; text-align:left;}
+.restricao-table .restricao-servico-cell{max-width:110px;}
+.restricao-table .rf-input{
+  width:100%; min-width:46px; box-sizing:border-box; margin-top:6px; padding:3px 5px; font-size:11.5px;
+  border-radius:5px; border:1px solid transparent; background:#fff; color:#222; text-transform:none;
 }
+.restricao-table .rf-input:disabled{opacity:.55; cursor:not-allowed;}
+.restricao-pill{
+  display:inline-block; min-width:92px; padding:6px 10px; border-radius:6px; font-size:11px; font-weight:800;
+  text-transform:uppercase; letter-spacing:.02em; text-align:center; color:#25303b;
+}
+.restricao-pill-ok{background:#7FD6A2;}
+.restricao-pill-andamento{background:#F5D663;}
+.restricao-pill-novo{background:#DDE1E8;}
+.restricao-nivel{display:inline-block; padding:4px 9px; border-radius:999px; font-size:11px; font-weight:700; color:#25303b;}
+.restricao-nivel-check-in{background:#CFE4FA;}
+.restricao-nivel-sprint{background:#E0D4F5;}
+.restricao-nivel-medio-prazo{background:#CDEDE6;}
+.restricao-nivel-reuniao-diretoria{background:#F8D5DE;}
+.restricao-cls{
+  display:inline-block; min-width:54px; padding:7px 10px; border-radius:6px; font-size:14px; font-weight:800;
+  text-align:center; color:#25303b; font-family:var(--font-mono);
+}
+.restricao-cls-hi{background:#F6A9A4;}
+.restricao-cls-md{background:#FCDDB8;}
+.restricao-cls-lo{background:#FFF4D6;}
+.restricao-gut-num{font-family:var(--font-mono); font-weight:600; width:38px; padding-left:3px; padding-right:3px;}
+.restricao-table td.restricao-atraso-cell{position:relative; background:#FDE6E6; color:#7a1f1f;}
+.restricao-atraso-flag{
+  position:absolute; top:-1px; right:-1px; min-width:19px; height:19px; padding:0 5px; box-sizing:border-box;
+  border-radius:999px; background:#E0252B; color:#fff; font-size:10.5px; font-weight:800; line-height:19px;
+  text-align:center; box-shadow:0 0 0 2px var(--surface);
+}
+.restricao-rodape{display:flex; justify-content:space-between; gap:12px; padding:10px 2px 0; font-size:12.5px; color:var(--text-muted);}
+.restricao-busca{position:relative; flex:1; min-width:200px;}
+.restricao-busca .search-input{width:100%; margin:0; padding-left:34px; box-sizing:border-box;}
+.restricao-busca::before{content:"🔍"; position:absolute; left:11px; top:50%; transform:translateY(-50%); font-size:13px; opacity:.6; pointer-events:none;}
 .pkg-name{font-weight:600;}
 .pkg-meta{font-size:12px; color:var(--text-muted);}
 .bar-track{width:100%; height:6px; border-radius:99px; background:var(--surface-2); overflow:hidden;}
@@ -1831,6 +1857,8 @@ async function initDb(){
   PAINEL_HIDDEN_COLS = []; PAINEL_RESP_FILTRO = null; FOCO_PACOTE_IDX = null;
   PRESENTATION_MODE = false; CAUSAS_FILTRO_PACOTES = null; CAUSAS_FILTRO_PERIODOS = null;
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
+  RESTRICAO_SEARCH = ''; RESTRICAO_ADDING = false; RESTRICAO_EDITING_ID = null;
+  RESTRICAO_FILTROS = {}; RESTRICAO_FILTROS_OPEN = false;
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -4267,27 +4295,56 @@ let RESTRICAO_SEARCH = '';
 // clicar e poder mudar o texto" — editar vira a MESMA linha, virando um formulário inline no lugar).
 let RESTRICAO_ADDING = false;
 let RESTRICAO_EDITING_ID = null;
+let RESTRICAO_FILTROS = {};        // { colKey: valor } — filtro por coluna (2026-10-05)
+let RESTRICAO_FILTROS_OPEN = false; // linha de filtros visível no cabeçalho (botão "Filtros")
+function restricaoEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function restricaoNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
+// "Nível" da restrição (2026-10-05, pedido dela): em qual fórum ela é acompanhada.
+const RESTRICAO_NIVEIS = [
+  {v:'check-in', label:'Check-in'},
+  {v:'sprint', label:'Sprint'},
+  {v:'medio-prazo', label:'Médio prazo'},
+  {v:'reuniao-diretoria', label:'Reunião de diretoria'},
+];
+function restricaoNivelLabel(v){ const n = RESTRICAO_NIVEIS.find(x=>x.v===v); return n ? n.label : ''; }
+function restricaoNivelOptionsHtml(sel){
+  return '<option value="">—</option>' + RESTRICAO_NIVEIS.map(n=>`<option value="${n.v}" ${sel===n.v?'selected':''}>${n.label}</option>`).join('');
+}
+function restricaoStatusKey(s){ return (s==='resolvido' || s==='em_andamento') ? s : 'aberto'; }
 function restricaoStatusLabel(s){ return s==='resolvido' ? 'Resolvido' : s==='em_andamento' ? 'Em andamento' : 'Não iniciado'; }
-function restricaoStatusBadge(s){ return s==='resolvido' ? 'badge-good' : s==='em_andamento' ? 'badge-warn' : 'badge-neutral'; }
+function restricaoStatusPill(s){ return s==='resolvido' ? 'restricao-pill-ok' : s==='em_andamento' ? 'restricao-pill-andamento' : 'restricao-pill-novo'; }
 function restricaoStatusOptionsHtml(sel){
   return `<option value="aberto" ${sel==='em_andamento'||sel==='resolvido'?'':'selected'}>Não iniciado</option>
     <option value="em_andamento" ${sel==='em_andamento'?'selected':''}>Em andamento</option>
     <option value="resolvido" ${sel==='resolvido'?'selected':''}>Resolvido</option>`;
 }
+function restricaoParseDia(iso){
+  if(!iso) return null;
+  const d = new Date(iso+'T00:00:00');
+  return isNaN(d) ? null : d;
+}
+function restricaoHoje(){ const d = new Date(); d.setHours(0,0,0,0); return d; }
 // dias corridos desde que a restrição foi identificada (campo "Data") até HOJE DE VERDADE — não
 // TODAY_ORD (que segue a semana da última planilha enviada): restrição não tem nada a ver com
-// planilha semanal, então usa a data real do calendário, sempre.
+// planilha semanal, então usa a data real do calendário, sempre. Restrição já resolvida (com data de
+// resolução) para de contar na data em que foi resolvida.
 function restricaoDias(r){
-  if(!r.data) return null;
-  const d = new Date(r.data+'T00:00:00');
-  if(isNaN(d)) return null;
-  return Math.max(0, Math.round((new Date().setHours(0,0,0,0) - d.getTime())/86400000));
+  const ini = restricaoParseDia(r.data);
+  if(!ini) return null;
+  const fimResolvido = r.status==='resolvido' ? restricaoParseDia(r.dataResolucao) : null;
+  const fim = fimResolvido || restricaoHoje();
+  return Math.max(0, Math.round((fim.getTime() - ini.getTime())/86400000));
+}
+// dias de ATRASO: prazo (data de resolução) já passou e a restrição ainda não foi resolvida.
+function restricaoAtraso(r){
+  if(r.status==='resolvido') return 0;
+  const prazo = restricaoParseDia(r.dataResolucao);
+  if(!prazo) return 0;
+  return Math.max(0, Math.round((restricaoHoje().getTime() - prazo.getTime())/86400000));
 }
 // legenda da matriz G.U.T (2026-10-01; texto exato da legenda REAL que o time dela usa na planilha
-// — ela mandou print dos comentários da Erika Sakai na planilha, com a redação oficial, que é mais
-// curta/diferente da que eu tinha colocado antes a partir de uma definição genérica de mercado).
-// Única fonte de verdade: tanto a legenda quanto os <select> de G/U/T (ver restricaoGutSelectHtml)
-// usam este mesmo objeto, pra nunca ficarem com textos diferentes um do outro.
+// — ela mandou print dos comentários da Erika Sakai na planilha, com a redação oficial).
+// Única fonte de verdade: tanto os <select> de G/U/T quanto os tooltips das células usam este objeto.
 const RESTRICAO_GUT_NIVEIS = {
   g: [
     {v:5, nome:'Extremamente grave'},
@@ -4311,50 +4368,101 @@ const RESTRICAO_GUT_NIVEIS = {
     {v:1, nome:'Não irá mudar'},
   ],
 };
+const RESTRICAO_GUT_TITULO = {g:'Gravidade', u:'Urgência', t:'Tendência'};
 function restricaoGutNome(letter, v){
   const n = RESTRICAO_GUT_NIVEIS[letter].find(x=>x.v===Number(v));
   return n ? n.nome : '';
 }
-// texto "5 - Extremamente grave" pra mostrar G/U/T individualmente na tela principal — ela pediu
-// depois de ver que só mostrávamos o resultado final (G×U×T), sem as 3 letras separadas: "no app que
-// eu te mandei ele fica mostrando a classificação de cada uma das letras na tela principal, e nao só
-// o resumo."
-function restricaoGutCellText(letter, v){
-  return (v==null || v==='') ? '—' : `${v} - ${restricaoGutNome(letter, v)}`;
-}
-// select com a frase inteira de cada nível (não só o número 1-5) — ela pediu depois de ver que os
-// campos G/U/T eram inputs numéricos "pelados": "queria que colocasse isso, e não somente o número
-// na hora de selecionar." Cada G/U/T agora tem sua própria coluna na tabela (ver renderRestricoes),
-// então o select não precisa mais repetir a letra — o cabeçalho da coluna já diz.
+// select com a frase inteira de cada nível (não só o número 1-5): ao abrir a lista aparece o texto
+// completo; fechado, só o começo cabe na coluna estreita (a tabela mostra G/U/T como números, igual
+// ao app de referência dela, com o texto completo no tooltip).
 function restricaoGutSelectHtml(letter, id, selected){
   const opts = RESTRICAO_GUT_NIVEIS[letter].map(n=>`<option value="${n.v}" ${String(selected)===String(n.v)?'selected':''}>${n.v} - ${n.nome}</option>`).join('');
-  return `<select id="${id}" style="width:100%; min-width:170px;"><option value="">—</option>${opts}</select>`;
+  return `<select id="${id}" title="${RESTRICAO_GUT_TITULO[letter]}" style="width:64px;"><option value="">—</option>${opts}</select>`;
+}
+// faixa da classificação: hi (≥64), md (≥27), lo (resto), none (sem G/U/T completos)
+function restricaoClsKey(c){ return c==null ? 'none' : c>=64 ? 'hi' : c>=27 ? 'md' : 'lo'; }
+const RESTRICAO_COLS = [
+  {k:'item', label:'Item', t:'num', val:r=>r.item},
+  {k:'nivel', label:'Nível', t:'sel', val:r=>r.nivel||'', opts:RESTRICAO_NIVEIS.map(n=>({v:n.v,label:n.label}))},
+  {k:'servico', label:'Serviço', t:'txt', val:r=>r.servico},
+  {k:'data', label:'Data', t:'txt', val:r=>r.data?fmtDate2(r.data):''},
+  {k:'dias', label:'Dias em<br>andamento', t:'num', val:r=>restricaoDias(r)},
+  {k:'eng', label:'Responsável', t:'txt', val:r=>r.eng},
+  {k:'coordenador', label:'Coordenador', t:'txt', val:r=>r.coordenador},
+  {k:'restricao', label:'Restrição', t:'txt', val:r=>r.restricao},
+  {k:'solucao', label:'Observação', t:'txt', val:r=>r.solucao},
+  {k:'dataResolucao', label:'Data de<br>resolução', t:'txt', val:r=>r.dataResolucao?fmtDate2(r.dataResolucao):''},
+  {k:'status', label:'Status', t:'sel', val:r=>restricaoStatusKey(r.status), opts:[
+    {v:'aberto',label:'Não iniciado'},{v:'em_andamento',label:'Em andamento'},{v:'resolvido',label:'Resolvido'}]},
+  {k:'g', label:'G', title:'Gravidade', t:'sel', val:r=>r.g==null?'':String(r.g), opts:[5,4,3,2,1].map(n=>({v:String(n),label:String(n)}))},
+  {k:'u', label:'U', title:'Urgência', t:'sel', val:r=>r.u==null?'':String(r.u), opts:[5,4,3,2,1].map(n=>({v:String(n),label:String(n)}))},
+  {k:'t', label:'T', title:'Tendência', t:'sel', val:r=>r.t==null?'':String(r.t), opts:[5,4,3,2,1].map(n=>({v:String(n),label:String(n)}))},
+  {k:'cls', label:'Classificação<br>(G×U×T)', t:'sel', val:r=>restricaoClsKey(restricaoCls(r)), opts:[
+    {v:'hi',label:'≥ 64'},{v:'md',label:'27 a 63'},{v:'lo',label:'< 27'},{v:'none',label:'Sem classificação'}]},
+];
+function restricaoNumMatch(val, expr){
+  expr = String(expr).trim();
+  if(/^(>=|<=|>|<|=)$/.test(expr)) return true;
+  const m = expr.match(/^(>=|<=|>|<|=)?\s*(\d+)$/);
+  if(!m || val==null || val==='') return false;
+  const n = Number(m[2]), v = Number(val), op = m[1] || '=';
+  return op==='>' ? v>n : op==='<' ? v<n : op==='>=' ? v>=n : op==='<=' ? v<=n : v===n;
+}
+function restricaoPassaFiltros(r){
+  for(const col of RESTRICAO_COLS){
+    const f = RESTRICAO_FILTROS[col.k];
+    if(f==null || f==='') continue;
+    const val = col.val(r);
+    if(col.t==='sel'){ if(String(val)!==f) return false; }
+    else if(col.t==='num'){ if(!restricaoNumMatch(val, f)) return false; }
+    else if(!restricaoNorm(val).includes(restricaoNorm(f))) return false;
+  }
+  return true;
+}
+function restricaoPassaBusca(r, nq){
+  if(!nq) return true;
+  return [r.servico, r.eng, r.coordenador, r.restricao, r.solucao, restricaoStatusLabel(r.status), restricaoNivelLabel(r.nivel)]
+    .some(x=>restricaoNorm(x).includes(nq));
+}
+function restricaoThHtml(col, travado){
+  let ctl = '';
+  if(RESTRICAO_FILTROS_OPEN){
+    const cur = RESTRICAO_FILTROS[col.k] || '';
+    const dis = travado ? ' disabled title="Salve ou cancele a edição para filtrar"' : '';
+    if(col.t==='sel'){
+      ctl = `<select class="rf-input" id="rf_${col.k}" data-rfiltro="${col.k}"${dis}><option value="">Todos</option>${col.opts.map(o=>`<option value="${o.v}" ${cur===o.v?'selected':''}>${o.label}</option>`).join('')}</select>`;
+    } else {
+      ctl = `<input class="rf-input" id="rf_${col.k}" data-rfiltro="${col.k}" value="${restricaoEsc(cur)}" placeholder="${col.t==='num'?'ex: >10':'filtrar'}"${dis}>`;
+    }
+  }
+  return `<th${col.title?` title="${col.title}"`:''}>${col.label}${ctl}</th>`;
 }
 // formulário inline, usado tanto pra CRIAR (r=null, prefixo "rn") quanto pra EDITAR uma restrição já
 // existente (r=o registro, prefixo "re") — mesma linha da tabela vira os campos editáveis, sem modal
-// nenhum nos dois casos.
+// nenhum nos dois casos. Mesma ordem de colunas da tabela.
 function restricaoLinhaFormHtml(r){
-  const pacoteOpts = LOOKUPS.pacotes.map(n=>`<option value="${n}">`).join('');
+  const pacoteOpts = LOOKUPS.pacotes.map(n=>`<option value="${restricaoEsc(n)}">`).join('');
   const p = r ? 're' : 'rn';
-  const v = k => r && r[k]!=null ? String(r[k]).replace(/"/g,'&quot;') : '';
+  const v = k => r && r[k]!=null ? restricaoEsc(r[k]) : '';
   const item = r ? r.item : '—';
   const dias = r ? (restricaoDias(r)!=null ? restricaoDias(r) : '—') : '—';
   return `<tr class="restricao-nova" ${r?`data-editing-id="${r.id}"`:''}>
     <td class="num-cell mono">${item}</td>
+    <td><select id="${p}Nivel">${restricaoNivelOptionsHtml(r&&r.nivel)}</select></td>
     <td><input id="${p}Servico" list="${p}ServicoList" placeholder="Serviço/pacote" value="${v('servico')}"><datalist id="${p}ServicoList">${pacoteOpts}</datalist></td>
     <td><input type="date" id="${p}Data" value="${v('data')}"></td>
     <td class="num-cell mono">${dias}</td>
     <td><input id="${p}Eng" placeholder="Responsável" value="${v('eng')}"></td>
+    <td><input id="${p}Coord" placeholder="Coordenador" value="${v('coordenador')}"></td>
     <td class="left"><input id="${p}Restricao" placeholder="Descreva a restrição" style="width:100%;" value="${v('restricao')}"></td>
     <td class="left"><input id="${p}Solucao" placeholder="Observação (opcional)" style="width:100%;" value="${v('solucao')}"></td>
+    <td><input type="date" id="${p}DataRes" value="${v('dataResolucao')}"></td>
     <td><select id="${p}Status">${restricaoStatusOptionsHtml(r&&r.status)}</select></td>
-    <td>
-      <div style="display:flex; flex-direction:column; gap:3px; min-width:190px;">
-        ${restricaoGutSelectHtml('g',p+'G', r&&r.g)}
-        ${restricaoGutSelectHtml('u',p+'U', r&&r.u)}
-        ${restricaoGutSelectHtml('t',p+'T', r&&r.t)}
-      </div>
-    </td>
+    <td>${restricaoGutSelectHtml('g',p+'G', r&&r.g)}</td>
+    <td>${restricaoGutSelectHtml('u',p+'U', r&&r.u)}</td>
+    <td>${restricaoGutSelectHtml('t',p+'T', r&&r.t)}</td>
+    <td class="num-cell mono">—</td>
     <td style="white-space:nowrap;">
       <button class="btn btn-sm btn-primary" id="${p}Salvar">Salvar</button>
       <button class="btn btn-sm" id="${p}Cancelar">✕</button>
@@ -4362,10 +4470,13 @@ function restricaoLinhaFormHtml(r){
   </tr>`;
 }
 function renderRestricoes(){
-  const nq = RESTRICAO_SEARCH.trim().toLowerCase();
+  const nq = restricaoNorm(RESTRICAO_SEARCH.trim());
   const list = RESTRICOES
     .map((r,i)=>({...r, item:i+1}))
-    .filter(r=> !nq || (r.servico||'').toLowerCase().includes(nq) || (r.restricao||'').toLowerCase().includes(nq));
+    .filter(r=> restricaoPassaBusca(r, nq) && restricaoPassaFiltros(r));
+  const nFiltros = Object.keys(RESTRICAO_FILTROS).filter(k=>RESTRICAO_FILTROS[k]!=='').length;
+  const travado = !!(RESTRICAO_ADDING || RESTRICAO_EDITING_ID); // filtrar redesenha a tabela e perderia o que foi digitado no formulário
+  const ehPlan = MY_ROLE==='planejador';
   const screen = document.getElementById('screen');
   screen.innerHTML = `
   <div class="screen-enter">
@@ -4373,55 +4484,77 @@ function renderRestricoes(){
     <div class="card">
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
         <h3 class="section-title" style="margin:0;">🚧 Restrições</h3>
-        <input class="search-input" id="restricaoSearch" style="flex:1; min-width:180px; margin:0;" placeholder="Buscar por serviço ou restrição..." value="${RESTRICAO_SEARCH.replace(/"/g,'&quot;')}">
-        ${MY_ROLE==='planejador' && !RESTRICAO_ADDING && !RESTRICAO_EDITING_ID ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
+        <div class="restricao-busca">
+          <input class="search-input" id="restricaoSearch" placeholder="Buscar por restrição, serviço, responsável ou status..." value="${restricaoEsc(RESTRICAO_SEARCH)}"${travado?' disabled title="Salve ou cancele a edição para buscar"':''}>
+        </div>
+        <button class="btn" id="btnRestricaoFiltros">⚲ Filtros${nFiltros?` (${nFiltros})`:''}</button>
+        ${ehPlan && !travado ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
-      <div class="panel-table-wrap">
+      <div class="panel-table-wrap restricao-wrap">
       <table class="rank-table panel-table restricao-table">
         <thead><tr>
-          <th>Item</th><th>Serviço</th><th>Data</th><th>Dias em<br>andamento</th><th>Responsável</th><th>Restrição</th>
-          <th>Observação</th><th>Status</th>
-          <th>Classificação<br><span class="pkg-meta">(G×U×T)</span></th>
-          ${MY_ROLE==='planejador' ? '<th></th>' : ''}
+          ${RESTRICAO_COLS.map(c=>restricaoThHtml(c, travado)).join('')}
+          ${ehPlan ? `<th>${RESTRICAO_FILTROS_OPEN && nFiltros ? '<button type="button" class="btn btn-sm" id="btnLimparFiltros" style="margin:0;">Limpar</button>' : ''}</th>` : ''}
         </tr></thead>
         <tbody>
-          ${MY_ROLE==='planejador' && RESTRICAO_ADDING ? restricaoLinhaFormHtml(null) : ''}
+          ${ehPlan && RESTRICAO_ADDING ? restricaoLinhaFormHtml(null) : ''}
           ${list.length ? list.map(r=>{
-            if(MY_ROLE==='planejador' && r.id===RESTRICAO_EDITING_ID) return restricaoLinhaFormHtml(r);
-            const c = restricaoCls(r), band = restricaoBand(c);
+            if(ehPlan && r.id===RESTRICAO_EDITING_ID) return restricaoLinhaFormHtml(r);
+            const c = restricaoCls(r), cKey = restricaoClsKey(c);
             const dias = restricaoDias(r);
-            const bandClass = band ? `restricao-band-${band}` : '';
-            return `<tr class="${MY_ROLE==='planejador'?'pkg-row':''} ${bandClass}" data-id="${r.id}" style="${MY_ROLE==='planejador'?'cursor:pointer;':''}">
+            const atraso = restricaoAtraso(r);
+            const gut = (letter, val) => `<td class="restricao-gut-num" title="${RESTRICAO_GUT_TITULO[letter]}${val!=null?': '+val+' - '+restricaoGutNome(letter,val):''}">${val!=null?val:'—'}</td>`;
+            return `<tr class="${ehPlan?'pkg-row':''}" data-id="${r.id}" style="${ehPlan?'cursor:pointer;':''}">
               <td class="num-cell mono">${r.item}</td>
-              <td class="restricao-servico-cell" title="${(r.servico||'').replace(/"/g,'&quot;')}">${r.servico||'—'}</td>
+              <td>${restricaoNivelLabel(r.nivel)?`<span class="restricao-nivel restricao-nivel-${r.nivel}">${restricaoNivelLabel(r.nivel)}</span>`:'—'}</td>
+              <td class="restricao-servico-cell" title="${restricaoEsc(r.servico)}">${restricaoEsc(r.servico)||'—'}</td>
               <td class="num-cell mono">${r.data?fmtDate2(r.data):'—'}</td>
               <td class="num-cell mono">${dias!=null?dias:'—'}</td>
-              <td>${r.eng||'—'}</td>
-              <td class="left">${r.restricao||'—'}</td>
-              <td class="left">${r.solucao||'—'}</td>
-              <td><span class="badge ${restricaoStatusBadge(r.status)}">${restricaoStatusLabel(r.status)}</span></td>
-              <td class="left restricao-gut-cell">
-                <div>G: ${restricaoGutCellText('g', r.g)}</div>
-                <div>U: ${restricaoGutCellText('u', r.u)}</div>
-                <div>T: ${restricaoGutCellText('t', r.t)}</div>
-                ${c!=null?`<span class="badge badge-${band}" style="margin-top:4px;">${c}</span>`:''}
-              </td>
-              ${MY_ROLE==='planejador' ? `<td style="white-space:nowrap;"><button type="button" class="btn btn-sm" data-edit-restricao="${r.id}" title="Editar" aria-label="Editar restrição">✎</button> <button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
+              <td>${restricaoEsc(r.eng)||'—'}</td>
+              <td>${restricaoEsc(r.coordenador)||'—'}</td>
+              <td class="left">${restricaoEsc(r.restricao)||'—'}</td>
+              <td class="left">${restricaoEsc(r.solucao)||'—'}</td>
+              <td class="num-cell mono${atraso?' restricao-atraso-cell':''}"${atraso?` title="${atraso} dia${atraso>1?'s':''} em atraso"`:''}>${r.dataResolucao?fmtDate2(r.dataResolucao):'—'}${atraso?`<span class="restricao-atraso-flag">${atraso}</span>`:''}</td>
+              <td><span class="restricao-pill ${restricaoStatusPill(r.status)}">${restricaoStatusLabel(r.status)}</span></td>
+              ${gut('g', r.g)}${gut('u', r.u)}${gut('t', r.t)}
+              <td>${c!=null?`<span class="restricao-cls restricao-cls-${cKey}">${c}</span>`:'—'}</td>
+              ${ehPlan ? `<td style="white-space:nowrap;"><button type="button" class="btn btn-sm" data-edit-restricao="${r.id}" title="Editar" aria-label="Editar restrição">✎</button> <button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
             </tr>`;
-          }).join('') : (RESTRICAO_ADDING ? '' : `<tr><td colspan="${MY_ROLE==='planejador'?10:9}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com essa busca.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
+          }).join('') : (RESTRICAO_ADDING ? '' : `<tr><td colspan="${RESTRICAO_COLS.length + (ehPlan?1:0)}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com esses filtros.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
         </tbody>
       </table>
       </div>
+      <div class="restricao-rodape"><span>Mostrando ${list.length} de ${RESTRICOES.length} registros</span></div>
     </div>
   </div>`;
   wireScreenTabs();
   wireRestricoes();
 }
+// redesenha e devolve o foco/cursor pro campo que estava sendo digitado (busca ou filtro)
+function restricaoRedesenhaMantendoFoco(el){
+  const id = el.id, pos = el.selectionStart;
+  renderRestricoes();
+  const novo = document.getElementById(id);
+  if(novo && novo.tagName==='INPUT'){
+    novo.focus();
+    try{ novo.setSelectionRange(pos, pos); }catch(e){}
+  }
+}
 function wireRestricoes(){
   const search = document.getElementById('restricaoSearch');
-  search.addEventListener('input', e=>{ RESTRICAO_SEARCH = e.target.value; renderRestricoes(); });
-  // foca de volta no campo de busca depois de redesenhar (sem isso, digitar perdia o foco a cada letra)
-  if(RESTRICAO_SEARCH){ search.focus(); search.selectionStart = search.selectionEnd = search.value.length; }
+  search.addEventListener('input', e=>{ RESTRICAO_SEARCH = e.target.value; restricaoRedesenhaMantendoFoco(search); });
+  const btnFiltros = document.getElementById('btnRestricaoFiltros');
+  btnFiltros.onclick = ()=>{ RESTRICAO_FILTROS_OPEN = !RESTRICAO_FILTROS_OPEN; renderRestricoes(); };
+  document.querySelectorAll('[data-rfiltro]').forEach(el=>{
+    const evt = el.tagName==='SELECT' ? 'change' : 'input';
+    el.addEventListener(evt, ()=>{
+      const k = el.dataset.rfiltro;
+      if(el.value==='') delete RESTRICAO_FILTROS[k]; else RESTRICAO_FILTROS[k] = el.value;
+      restricaoRedesenhaMantendoFoco(el);
+    });
+  });
+  const btnLimpar = document.getElementById('btnLimparFiltros');
+  if(btnLimpar) btnLimpar.onclick = ()=>{ RESTRICAO_FILTROS = {}; renderRestricoes(); };
   const btnNova = document.getElementById('btnNovaRestricao');
   if(btnNova) btnNova.onclick = ()=>{ RESTRICAO_ADDING = true; renderRestricoes(); };
   wireRestricaoForm('rn', null);
@@ -4461,8 +4594,7 @@ function wireRestricoes(){
 }
 // liga os botões Salvar/✕ de UM formulário inline (`prefix` casa com os ids gerados por
 // `restricaoLinhaFormHtml`) — reusado tanto pra criar (`existing=null`) quanto pra editar
-// (`existing`=o registro original, só pra saber o `id` e preservar `dataResolucao`, que não tem
-// campo nessa versão simplificada/inline).
+// (`existing`=o registro original, só pra saber o `id`).
 function wireRestricaoForm(prefix, existing){
   const btnSalvar = document.getElementById(prefix+'Salvar');
   if(!btnSalvar) return;
@@ -4474,19 +4606,22 @@ function wireRestricaoForm(prefix, existing){
   };
   btnSalvar.onclick = async ()=>{
     const toInt = v=>{ const n=parseInt(v,10); return isNaN(n) ? null : n; };
-    const restricao = document.getElementById(prefix+'Restricao').value.trim();
+    const val = s => document.getElementById(prefix+s).value;
+    const restricao = val('Restricao').trim();
     if(!restricao){ toast('Descreva a restrição.', 'warn'); return; }
     const entry = {
-      servico: document.getElementById(prefix+'Servico').value.trim(),
-      data: document.getElementById(prefix+'Data').value || null,
-      eng: document.getElementById(prefix+'Eng').value.trim(),
+      nivel: val('Nivel') || null,
+      servico: val('Servico').trim(),
+      data: val('Data') || null,
+      eng: val('Eng').trim(),
+      coordenador: val('Coord').trim(),
       restricao,
-      solucao: document.getElementById(prefix+'Solucao').value.trim(),
-      dataResolucao: existing ? (existing.dataResolucao||null) : null,
-      status: document.getElementById(prefix+'Status').value,
-      g: toInt(document.getElementById(prefix+'G').value),
-      u: toInt(document.getElementById(prefix+'U').value),
-      t: toInt(document.getElementById(prefix+'T').value),
+      solucao: val('Solucao').trim(),
+      dataResolucao: val('DataRes') || null,
+      status: val('Status'),
+      g: toInt(val('G')),
+      u: toInt(val('U')),
+      t: toInt(val('T')),
     };
     if(existing){
       await updateRestricao(existing.id, entry);
