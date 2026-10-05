@@ -370,6 +370,22 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 }
 .restricao-menu button:hover{background:var(--surface-2);}
 .restricao-menu button.ativo{font-weight:700; background:var(--info-soft, var(--surface-2));}
+/* quadro de data (Data / Data de resolução) — os botões do menu comum ocupam a linha inteira, aqui não */
+.restricao-menu.restricao-datepop{min-width:250px; padding:12px;}
+.restricao-datepop .rd-titulo{font-family:var(--font-display); font-weight:700; font-size:12.5px; margin-bottom:8px;}
+.restricao-datepop input{
+  width:100%; box-sizing:border-box; padding:8px 10px; font:inherit; font-size:14px; color:var(--text);
+  background:var(--surface); border:1px solid var(--border); border-radius:8px;
+}
+.restricao-datepop input:focus{outline:none; border-color:var(--info); box-shadow:0 0 0 3px color-mix(in srgb, var(--info) 22%, transparent);}
+.restricao-datepop .rd-acoes{display:flex; align-items:center; gap:6px; margin-top:10px;}
+.restricao-menu.restricao-datepop button{
+  display:inline-flex; width:auto; padding:6px 12px; border:1px solid var(--border); border-radius:7px;
+  background:var(--surface); font-size:12.5px; font-weight:600; text-align:center;
+}
+.restricao-menu.restricao-datepop button:hover:not(:disabled){border-color:var(--info);}
+.restricao-menu.restricao-datepop button:disabled{opacity:.45; cursor:default;}
+.restricao-menu.restricao-datepop button.rd-ok{background:var(--accent); border-color:var(--accent); color:#fff;}
 .panel-table.restricao-table{border-collapse:separate; border-spacing:0; font-size:13px;}
 .panel-table.restricao-table th, .panel-table.restricao-table td{white-space:normal; padding:8px 7px;}
 .panel-table.restricao-table thead th{
@@ -5025,6 +5041,38 @@ function restricaoAbreMenu(td, campo, atual, aoEscolher){
   document.addEventListener('keydown', restricaoMenuTecla, true);
   window.addEventListener('scroll', restricaoFechaMenu, true);
 }
+// quadro flutuante pra escolher/digitar uma data (reaproveita #restricaoMenu: fecha com Esc, clique fora
+// ou rolagem). OK com o campo vazio só fecha (apagar é o botão "Limpar" — assim uma data pela metade nunca
+// apaga a que já estava lá).
+function restricaoAbreData(td, titulo, atual, aoEscolher){
+  restricaoFechaMenu();
+  const m = document.createElement('div');
+  m.id = 'restricaoMenu'; m.className = 'restricao-menu restricao-datepop';
+  m.innerHTML = `<div class="rd-titulo">${titulo}</div>
+    <input type="date" id="rdInput" value="${restricaoEsc(atual)}">
+    <div class="rd-acoes">
+      <button type="button" id="rdHoje">Hoje</button>
+      <button type="button" id="rdLimpar"${atual?'':' disabled'}>Limpar</button>
+      <span style="flex:1;"></span>
+      <button type="button" class="rd-ok" id="rdOk">OK</button>
+    </div>`;
+  document.body.appendChild(m);
+  const rc = td.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - m.offsetWidth - 8)) + 'px';
+  const abaixo = rc.bottom + 4 + m.offsetHeight <= window.innerHeight;
+  m.style.top = (abaixo ? rc.bottom + 4 : Math.max(8, rc.top - 4 - m.offsetHeight)) + 'px';
+  const inp = m.querySelector('#rdInput');
+  const aplica = v=>{ restricaoFechaMenu(); aoEscolher(v); };
+  const hoje = new Date(); hoje.setMinutes(hoje.getMinutes() - hoje.getTimezoneOffset());
+  m.querySelector('#rdHoje').onclick = ()=> aplica(hoje.toISOString().slice(0,10));
+  m.querySelector('#rdLimpar').onclick = ()=> aplica('');
+  m.querySelector('#rdOk').onclick = ()=>{ if(inp.value) aplica(inp.value); else restricaoFechaMenu(); };
+  inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); m.querySelector('#rdOk').click(); } });
+  document.addEventListener('mousedown', restricaoMenuFora, true);
+  document.addEventListener('keydown', restricaoMenuTecla, true);
+  window.addEventListener('scroll', restricaoFechaMenu, true);
+  inp.focus();
+}
 async function restricaoGrava(id, patch){
   await updateRestricao(id, patch);
   renderRestricoes();
@@ -5039,6 +5087,13 @@ function restricaoEditaCelula(td){
   if(tipo==='menu'){
     const atual = (campo==='status') ? restricaoStatusKey(r.status) : (r[campo]==null ? null : r[campo]);
     restricaoAbreMenu(td, campo, atual, v=>{ if(v!==atual) restricaoGrava(id, {[campo]: v}); });
+    return;
+  }
+  if(tipo==='date'){
+    // data NÃO edita dentro da célula (a coluna é estreita demais pro campo de data do navegador — cortava
+    // o texto e dava pra apagar a data sem querer): abre um quadro próprio, com Hoje / Limpar / OK
+    restricaoAbreData(td, campo==='dataResolucao' ? 'Data de resolução (prazo)' : 'Data da restrição', r[campo]||'',
+      v=>{ if((v||null)!==(r[campo]||null)) restricaoGrava(id, {[campo]: v||null}); });
     return;
   }
   const antes = r[campo]==null ? '' : String(r[campo]);
@@ -5080,6 +5135,8 @@ function restricaoRascunhoLinhaHtml(){
     if(tipo==='area') return `<td class="left restricao-draft-cell"><textarea class="restricao-edit" data-draft="${campo}" rows="3" placeholder="${ph}">${v}</textarea></td>`;
     return `<td class="restricao-draft-cell"><input class="restricao-edit" ${tipo==='date'?'type="date" ':''}data-draft="${campo}" placeholder="${ph}" value="${v}"${list}></td>`;
   };
+  // datas: célula clicável que abre o quadro de data (campo de data dentro da célula estreita não dava)
+  const dt = campo => `<td class="restricao-ed num-cell mono" data-draft-date="${campo}" title="Clique para escolher a data">${d[campo] ? fmtDate2(d[campo]) : '<span class="restricao-vazio">definir</span>'}</td>`;
   const conteudoMenu = campo => d[campo]!=null || campo==='status' ? restricaoCelulaInner(campo, d) : (campo==='nivel' ? '<span class="restricao-vazio">escolher</span>' : '—');
   const menu = (campo, cls) => (campo==='nivel' && !restricaoAutonomia())
     ? `<td title="Restrições novas entram sempre no nível Check-in — só coordenador e planejador mudam o nível">${conteudoMenu(campo)}</td>`
@@ -5088,13 +5145,13 @@ function restricaoRascunhoLinhaHtml(){
     <td class="num-cell mono">—</td>
     ${menu('nivel')}
     ${inp('servico','Serviço')}
-    ${inp('data','','date')}
+    ${dt('data')}
     <td class="num-cell mono">—</td>
     ${inp('eng','Responsável')}
     ${inp('coordenador','Coordenador')}
     ${inp('restricao','Descreva a restrição','area')}
     ${inp('solucao','Observação','area')}
-    ${inp('dataResolucao','','date')}
+    ${dt('dataResolucao')}
     ${menu('status')}
     ${menu('g','restricao-gut-num')}${menu('u','restricao-gut-num')}${menu('t','restricao-gut-num')}
     <td>${c!=null?`<span class="restricao-cls restricao-cls-${restricaoClsKey(c)}">${c}</span>`:'—'}</td>
@@ -5243,6 +5300,13 @@ function wireRestricoes(){
   document.querySelectorAll('[data-draft]').forEach(el=>{
     el.addEventListener('input', ()=>{ RESTRICAO_DRAFT[el.dataset.draft] = el.value; });
     el.addEventListener('keydown', e=>{ if(e.key==='Enter' && el.tagName==='INPUT'){ e.preventDefault(); restricaoSalvaRascunho(); } });
+  });
+  document.querySelectorAll('[data-draft-date]').forEach(td=>{
+    td.addEventListener('click', ()=>{
+      const campo = td.dataset.draftDate;
+      restricaoAbreData(td, campo==='dataResolucao' ? 'Data de resolução (prazo)' : 'Data da restrição', RESTRICAO_DRAFT[campo]||'',
+        v=>{ RESTRICAO_DRAFT[campo] = v||''; renderRestricoes(); });
+    });
   });
   document.querySelectorAll('[data-draft-menu]').forEach(td=>{
     td.addEventListener('click', ()=>{
