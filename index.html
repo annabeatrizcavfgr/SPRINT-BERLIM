@@ -413,6 +413,33 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 }
 .restricao-filtro-pop .rfp-ord:hover{background:var(--surface-2);}
 .restricao-filtro-pop .rfp-ord.ativo{background:var(--info-soft); color:var(--info-strong);}
+/* indicadores da Matriz GUT */
+.ind-topo{display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:14px;}
+.ind-mes{display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase;}
+.ind-mes select{font-size:13px; text-transform:none;}
+.ind-pills{display:flex; gap:8px; flex-wrap:wrap; margin-left:auto;}
+.ind-pill{display:inline-flex; align-items:center; gap:7px; padding:6px 12px; border-radius:999px; background:var(--surface-2); font-size:13px;}
+.ind-pill i{width:8px; height:8px; border-radius:50%; display:inline-block;}
+.ind-grade{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px;}
+@media (max-width:980px){ .ind-grade{grid-template-columns:1fr;} }
+.ind-box{border:1px solid var(--border); border-radius:10px; padding:14px;}
+.ind-titulo{font-family:var(--font-display); font-weight:700; font-size:14px; margin-bottom:2px;}
+.ind-chips{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:16px 0 10px;}
+.ind-chip{padding:5px 12px; border:1px solid var(--border); border-radius:999px; background:var(--surface); color:var(--text); font:inherit; font-size:12.5px; font-weight:600; cursor:pointer;}
+.ind-chip:hover{border-color:var(--info);}
+.ind-chip.ativo{background:var(--info-soft); border-color:var(--info); color:var(--info-strong);}
+.restricao-ind-table{font-size:12.5px;}
+.restricao-ind-table thead th{background:var(--head); color:#fff; padding:9px 8px; font-size:11px; border-bottom:none;}
+.restricao-ind-table td{padding:8px; white-space:normal;}
+.restricao-ind-table td.left{text-align:left; max-width:300px;}
+.restricao-ind-table td.ind-atraso{background:#FDE6E6; color:#B3261E; font-weight:800; font-size:15px; width:80px;}
+.ind-bars{max-height:300px; overflow-y:auto; padding-right:6px;}
+.ind-bar-row{display:grid; grid-template-columns:minmax(90px,150px) 1fr 34px; align-items:center; gap:10px; padding:4px 0; font-size:13px;}
+.ind-bar-lbl{text-align:right; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.ind-bar-track{display:block; height:20px;}
+.ind-bar-fill{display:block; height:100%; border-radius:4px; background:var(--info);}
+.ind-bar-fill.vazio{background:var(--border);}
+.ind-bar-n{font-weight:800; font-family:var(--font-mono);}
 .restricao-table .rs-lbl{cursor:pointer; user-select:none;}
 .restricao-table .rs-lbl:hover{text-decoration:underline;}
 .restricao-table .rs-ind{margin-left:4px; font-size:9px; opacity:.95;}
@@ -2210,7 +2237,7 @@ async function initDb(){
   PRESENTATION_MODE = false; CAUSAS_FILTRO_PACOTES = null; CAUSAS_FILTRO_PERIODOS = null;
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
-  RESTRICAO_FILTROS = {}; RESTRICAO_ORDEM = null;
+  RESTRICAO_FILTROS = {}; RESTRICAO_ORDEM = null; RESTRICAO_IND = {mes:'', escopo:'abertas'};
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -5130,9 +5157,11 @@ function renderRestricoes(){
       </div>
       <div class="restricao-rodape"><span>Mostrando ${list.length} de ${RESTRICOES.length} registros</span><span>${auto ? 'Clique em uma célula para editar' : 'Clique na observação para editar · novas restrições entram no nível Check-in'}</span></div>
     </div>
+    <div id="restricaoInd" style="margin-top:14px;"></div>
   </div>`;
   wireScreenTabs();
   wireRestricoes();
+  renderRestricaoIndicadores();
 }
 // redesenha e devolve o foco/cursor pro campo que estava sendo digitado (busca ou filtro)
 function restricaoRedesenhaMantendoFoco(el){
@@ -5402,6 +5431,122 @@ function restricaoMostraPrevia(nomeArquivo, res, soAbertas){
     }
   };
 }
+/* ===================================================================
+   INDICADORES DA MATRIZ GUT (2026-10-05, pedido dela, a partir do app de referência) — no fim da tela.
+   Ponderações que eu fiz em cima do original (ela avisou que algumas coisas pareciam "meio sem sentido"):
+   - Rankings ("maior grau" e "mais dias em atraso") só olham restrições EM ABERTO: uma restrição já
+     resolvida com nota 125 não é mais prioridade. Empate de nota: a mais antiga primeiro.
+   - "Em atraso" = em aberto e com prazo (data de resolução) já vencido. Restrição sem prazo não tem como
+     estar atrasada — a tela avisa quantas ficaram de fora, em vez de fingir que zero está atrasado.
+   - Por responsável: "ANA/ARTHUR", "Ana e Arthur" contam pra CADA pessoa (e Viktor = VIKTOR), em vez de
+     virar uma barra "ANA/ARTHUR" separada; por serviço, nomes iguais com maiúscula/acento diferente juntam.
+   - Os gráficos olham as restrições em aberto por padrão (o histórico de resolvidas escondia o que
+     importa hoje); dá pra trocar por atrasadas, finalizadas ou todas. As bolinhas de contagem sempre
+     mostram o quadro completo do período (atrasadas são um subconjunto das em aberto).
+   - Barras em azul de informação, não vermelho: vermelho em dado parece problema (feedback dela).
+   Sem o "Índice de Remoção de Restrições" (ela pediu pra não trazer).
+=================================================================== */
+let RESTRICAO_IND = {mes:'', escopo:'abertas'}; // reset em initDb
+const RESTRICAO_MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const RESTRICAO_IND_ESCOPOS = [
+  {v:'abertas', label:'Em aberto'}, {v:'atrasadas', label:'Atrasadas'}, {v:'finalizadas', label:'Finalizadas'}, {v:'todas', label:'Todas'},
+];
+function restricaoPessoas(txt){
+  const lista = String(txt||'').split(/\s*[\/,;&]\s*|\s+e\s+/i).map(s=>s.trim()).filter(Boolean);
+  return lista.length ? lista : [];
+}
+// conta quantas restrições cada rótulo tem; `rotulos(r)` devolve 1 ou mais rótulos por restrição
+function restricaoContagem(lista, rotulos, vazio){
+  const m = new Map();
+  lista.forEach(r=>{
+    const rs = rotulos(r);
+    (rs.length ? rs : [vazio]).forEach(nome=>{
+      const k = restricaoNorm(nome);
+      const atual = m.get(k) || {label: nome.toUpperCase(), count: 0, vazio: nome===vazio};
+      atual.count++;
+      m.set(k, atual);
+    });
+  });
+  return [...m.values()].sort((a,b)=> (a.vazio-b.vazio) || (b.count-a.count) || a.label.localeCompare(b.label,'pt'));
+}
+function restricaoIndicadores(){
+  const todas = RESTRICOES.map((r,i)=>({...r, item:i+1}));
+  const meses = [...new Set(todas.map(r=>(r.data||'').slice(0,7)).filter(Boolean))].sort().reverse();
+  if(RESTRICAO_IND.mes && !meses.includes(RESTRICAO_IND.mes)) RESTRICAO_IND.mes = '';
+  const base = RESTRICAO_IND.mes ? todas.filter(r=>(r.data||'').startsWith(RESTRICAO_IND.mes)) : todas;
+  const finalizadas = base.filter(r=>r.status==='resolvido');
+  const abertas = base.filter(r=>r.status!=='resolvido');
+  const atrasadas = abertas.filter(r=>restricaoAtraso(r)>0);
+  const grau = abertas.filter(r=>restricaoCls(r)!=null)
+    .sort((a,b)=> restricaoCls(b)-restricaoCls(a) || (restricaoDias(b)||0)-(restricaoDias(a)||0) || a.item-b.item).slice(0,5);
+  const maisAtraso = atrasadas.slice()
+    .sort((a,b)=> restricaoAtraso(b)-restricaoAtraso(a) || (restricaoCls(b)||0)-(restricaoCls(a)||0) || a.item-b.item).slice(0,5);
+  const escopo = {abertas, atrasadas, finalizadas, todas:base}[RESTRICAO_IND.escopo] || abertas;
+  return {
+    meses, base, finalizadas, abertas, atrasadas, grau, maisAtraso, escopo,
+    semPrazo: abertas.filter(r=>!r.dataResolucao).length,
+    semNota: abertas.filter(r=>restricaoCls(r)==null).length,
+    porResp: restricaoContagem(escopo, r=>restricaoPessoas(r.eng), 'Sem responsável'),
+    porServico: restricaoContagem(escopo, r=>(String(r.servico||'').trim() ? [String(r.servico).trim()] : []), 'Sem serviço'),
+  };
+}
+function restricaoIndTabela(titulo, sub, colunaLabel, linhas, celula, vazio){
+  const cortar = (s,n)=> s.length>n ? s.slice(0,n-1)+'…' : s;
+  return `<div class="ind-box">
+    <div class="ind-titulo">${titulo}</div><div class="pkg-meta" style="margin:0 0 8px;">${sub}</div>
+    ${linhas.length ? `<div style="overflow-x:auto;"><table class="rank-table restricao-ind-table"><thead><tr><th>Item</th><th>Serviço</th><th>Restrição</th><th>${colunaLabel}</th></tr></thead><tbody>
+      ${linhas.map(r=>`<tr><td class="num-cell mono">${r.item}</td><td>${restricaoEsc(r.servico)||'—'}</td><td class="left" title="${restricaoEsc(r.restricao)}">${restricaoEsc(cortar(r.restricao,95))}</td>${celula(r)}</tr>`).join('')}
+    </tbody></table></div>` : `<p class="empty-note">${vazio}</p>`}
+  </div>`;
+}
+function restricaoIndBarras(titulo, sub, dados){
+  const max = Math.max(1, ...dados.map(d=>d.count));
+  return `<div class="ind-box">
+    <div class="ind-titulo">${titulo}</div><div class="pkg-meta" style="margin:0 0 8px;">${sub}</div>
+    ${dados.length ? `<div class="ind-bars">${dados.map(d=>`<div class="ind-bar-row"><span class="ind-bar-lbl" title="${restricaoEsc(d.label)}">${restricaoEsc(d.label)}</span><span class="ind-bar-track"><span class="ind-bar-fill${d.vazio?' vazio':''}" style="width:${Math.max(3, d.count/max*100)}%"></span></span><span class="ind-bar-n">${d.count}</span></div>`).join('')}</div>` : '<p class="empty-note">Nenhuma restrição nesse recorte.</p>'}
+  </div>`;
+}
+function renderRestricaoIndicadores(){
+  const box = document.getElementById('restricaoInd');
+  if(!box) return;
+  if(!RESTRICOES.length){ box.innerHTML = ''; return; }
+  const d = restricaoIndicadores();
+  const escopoRot = (RESTRICAO_IND_ESCOPOS.find(e=>e.v===RESTRICAO_IND.escopo)||{}).label.toLowerCase();
+  const periodo = RESTRICAO_IND.mes ? restricaoMesRotulo(RESTRICAO_IND.mes) : 'todo o período';
+  box.innerHTML = `<div class="card">
+    <div class="ind-topo">
+      <div>
+        <h3 class="section-title" style="margin:0;">${ico('bars')} Indicadores da Matriz GUT</h3>
+        <div class="pkg-meta">Período: ${periodo} · pela data em que a restrição foi identificada</div>
+      </div>
+      <label class="ind-mes">Mês
+        <select id="indMes"><option value="">Todo o período</option>${d.meses.map(m=>`<option value="${m}" ${m===RESTRICAO_IND.mes?'selected':''}>${restricaoMesRotulo(m)}</option>`).join('')}</select>
+      </label>
+      <div class="ind-pills">
+        <span class="ind-pill"><i style="background:var(--good)"></i><strong>${d.finalizadas.length}</strong> concluídas</span>
+        <span class="ind-pill"><i style="background:#D9A21B"></i><strong>${d.abertas.length}</strong> em aberto</span>
+        <span class="ind-pill" title="Em aberto com o prazo (data de resolução) já vencido — fazem parte das ${d.abertas.length} em aberto"><i style="background:var(--critical)"></i><strong>${d.atrasadas.length}</strong> atrasadas</span>
+      </div>
+    </div>
+    <div class="ind-grade">
+      ${restricaoIndTabela('Restrições em aberto com maior grau (G.U.T)', 'Da mais grave pra menos grave; empate: a mais antiga primeiro.', 'Classificação', d.grau,
+        r=>`<td><span class="restricao-cls restricao-cls-${restricaoClsKey(restricaoCls(r))}">${restricaoCls(r)}</span></td>`, 'Nenhuma restrição em aberto com nota G.U.T nesse período.')}
+      ${restricaoIndTabela('Restrições com mais dias em atraso', 'Só em aberto com prazo vencido, as mais atrasadas primeiro.', 'Dias em<br>atraso', d.maisAtraso,
+        r=>`<td class="ind-atraso">${restricaoAtraso(r)}</td>`, 'Nenhuma restrição em atraso nesse período.')}
+    </div>
+    <div class="ind-chips"><span class="pkg-meta">Gráficos abaixo mostram:</span>
+      ${RESTRICAO_IND_ESCOPOS.map(e=>`<button type="button" class="ind-chip${e.v===RESTRICAO_IND.escopo?' ativo':''}" data-escopo="${e.v}">${e.label}</button>`).join('')}
+    </div>
+    <div class="ind-grade">
+      ${restricaoIndBarras('Quantidade de restrições por responsável', escopoRot+' · quem aparece junto (ex.: ANA/ARTHUR) conta pra cada um', d.porResp)}
+      ${restricaoIndBarras('Quantidade de restrições por serviço', escopoRot, d.porServico)}
+    </div>
+    ${(d.semPrazo || d.semNota) ? `<p class="footer-note" style="padding:8px 0 0; text-align:left;">${d.semPrazo ? `${d.semPrazo} restrição(ões) em aberto estão sem data de resolução (prazo) e por isso não entram em "dias em atraso". ` : ''}${d.semNota ? `${d.semNota} em aberto estão sem nota G, U ou T e ficam fora do ranking de grau.` : ''}</p>` : ''}
+  </div>`;
+  document.getElementById('indMes').onchange = e=>{ RESTRICAO_IND.mes = e.target.value; renderRestricaoIndicadores(); };
+  box.querySelectorAll('[data-escopo]').forEach(b=>{ b.onclick = ()=>{ RESTRICAO_IND.escopo = b.dataset.escopo; renderRestricaoIndicadores(); }; });
+}
+function restricaoMesRotulo(ym){ const [a,m] = ym.split('-'); return RESTRICAO_MESES_PT[Number(m)-1]+'/'+a; }
 function pctFmt(v){ return v==null ? '—' : Math.round(v*100)+'%'; }
 // IDP em formato numérico (0.99, 1.05), não percentual (99%, 105%) — pedido dela em 2026-09-09.
 function idpFmt(v){ return v==null ? '—' : v.toFixed(2); }
