@@ -407,6 +407,15 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
   max-height:220px; overflow:auto; padding:2px; border:1px solid var(--border); border-radius:6px; margin-top:2px;
 }
 .restricao-filtro-pop .rfp-vazio{padding:8px; color:var(--text-muted);}
+.restricao-filtro-pop .rfp-ord{
+  display:block; width:100%; margin:0 0 2px; padding:7px 8px; border:0; border-radius:6px; background:transparent;
+  color:var(--text); font:inherit; font-size:13px; font-weight:600; text-align:left; cursor:pointer;
+}
+.restricao-filtro-pop .rfp-ord:hover{background:var(--surface-2);}
+.restricao-filtro-pop .rfp-ord.ativo{background:var(--info-soft); color:var(--info-strong);}
+.restricao-table .rs-lbl{cursor:pointer; user-select:none;}
+.restricao-table .rs-lbl:hover{text-decoration:underline;}
+.restricao-table .rs-ind{margin-left:4px; font-size:9px; opacity:.95;}
 .restricao-filtro-pop .rfp-rodape{display:flex; align-items:center; gap:6px; margin-top:8px;}
 .restricao-pill{
   display:inline-block; min-width:92px; padding:6px 10px; border-radius:6px; font-size:11px; font-weight:800;
@@ -2201,7 +2210,7 @@ async function initDb(){
   PRESENTATION_MODE = false; CAUSAS_FILTRO_PACOTES = null; CAUSAS_FILTRO_PERIODOS = null;
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
-  RESTRICAO_FILTROS = {};
+  RESTRICAO_FILTROS = {}; RESTRICAO_ORDEM = null;
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -4671,6 +4680,10 @@ let RESTRICAO_COLW = null;          // larguras das colunas congeladas enquanto 
 // Filtro estilo Excel (2026-10-05): seta em cada título de coluna abre uma lista com pesquisa e caixas
 // de seleção dos valores. { colKey: [valores marcados] } — coluna ausente = sem filtro.
 let RESTRICAO_FILTROS = {};
+// classificação (2026-10-05, pedido dela: "não somente filtrar, mas também classificar — geralmente
+// apresentamos do maior para o menor na classificação GUT"): {k:coluna, dir:'asc'|'desc'} ou null (= ordem
+// em que as restrições foram cadastradas). Só muda a ordem na tela; o "Item" de cada linha não muda.
+let RESTRICAO_ORDEM = null;
 function restricaoEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function restricaoNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
 // "Nível" da restrição (2026-10-05, pedido dela): em qual fórum ela é acompanhada.
@@ -4771,6 +4784,28 @@ function restricaoAutonomia(){ return MY_ROLE==='planejador' || MY_ROLE==='coord
 function restricaoPodeEditar(campo){ return restricaoAutonomia() || campo==='solucao'; }
 const RESTRICAO_TIPO = {nivel:'menu', servico:'text', data:'date', eng:'text', coordenador:'text',
   restricao:'area', solucao:'area', dataResolucao:'date', status:'menu', g:'menu', u:'menu', t:'menu'};
+// valor usado pra classificar uma coluna: número nas numéricas, ordem lógica em nível/status, texto/data
+// (ISO) nas demais; null = vazio (vai sempre pro fim, qualquer que seja o sentido)
+function restricaoChaveOrdem(col, r){
+  if(col.k==='status') return {aberto:0, em_andamento:1, resolvido:2}[restricaoStatusKey(r.status)];
+  if(col.k==='nivel'){ const i = RESTRICAO_NIVEIS.findIndex(n=>n.v===r.nivel); return i<0 ? null : i; }
+  const v = col.fv(r);
+  if(v==='' || v==null) return null;
+  return col.num ? Number(v) : v;
+}
+function restricaoOrdena(lista){
+  if(!RESTRICAO_ORDEM) return lista;
+  const col = RESTRICAO_COLS.find(c=>c.k===RESTRICAO_ORDEM.k);
+  if(!col) return lista;
+  const dir = RESTRICAO_ORDEM.dir==='desc' ? -1 : 1;
+  return lista.map((r,i)=>({r, i, v: restricaoChaveOrdem(col, r)})).sort((a,b)=>{
+    if(a.v===null && b.v===null) return a.i-b.i;
+    if(a.v===null) return 1;
+    if(b.v===null) return -1;
+    const c = typeof a.v==='number' ? a.v-b.v : String(a.v).localeCompare(String(b.v), 'pt');
+    return c ? c*dir : a.i-b.i; // empate: mantém a ordem de cadastro
+  }).map(x=>x.r);
+}
 // `ignora` = coluna cujo próprio filtro não conta (usado pra montar a lista de valores dela)
 function restricaoPassaFiltros(r, ignora){
   for(const col of RESTRICAO_COLS){
@@ -4787,7 +4822,8 @@ function restricaoPassaBusca(r, nq){
 }
 function restricaoThHtml(col){
   const ativo = !!RESTRICAO_FILTROS[col.k];
-  return `<th${col.title?` title="${col.title}"`:''}>${col.label}<button type="button" class="rf-btn${ativo?' ativo':''}" data-rfbtn="${col.k}" title="${ativo?'Filtro aplicado — clique para alterar':'Filtrar'}" aria-label="Filtrar coluna">▾</button></th>`;
+  const ord = RESTRICAO_ORDEM && RESTRICAO_ORDEM.k===col.k ? RESTRICAO_ORDEM.dir : null;
+  return `<th${col.title?` title="${col.title}"`:''}${ord?` aria-sort="${ord==='asc'?'ascending':'descending'}"`:''}><span class="rs-lbl" data-rsort="${col.k}" title="Clique para classificar">${col.label}${ord?`<span class="rs-ind">${ord==='asc'?'▲':'▼'}</span>`:''}</span><button type="button" class="rf-btn${ativo?' ativo':''}" data-rfbtn="${col.k}" title="${ativo?'Filtro aplicado — clique para alterar':'Filtrar'}" aria-label="Filtrar coluna">▾</button></th>`;
 }
 // ---- Filtro estilo Excel: lista de valores com pesquisa, "(Selecionar tudo)", OK / Cancelar ----
 function restricaoFechaFiltro(){
@@ -4828,7 +4864,13 @@ function restricaoAbreFiltro(btn, col){
   const fora = todasChaves.filter(k=>!mapa.has(k) && (!atual || atual.includes(k)));
   const pop = document.createElement('div');
   pop.id = 'restricaoFiltroPop'; pop.className = 'restricao-filtro-pop'; pop.dataset.col = col.k;
-  pop.innerHTML = `<input type="text" class="rfp-busca" placeholder="Pesquisar" autocomplete="off">
+  const rotOrd = col.num ? ['Do menor para o maior','Do maior para o menor']
+    : (col.k==='data' || col.k==='dataResolucao') ? ['Mais antigas primeiro','Mais recentes primeiro'] : ['De A a Z','De Z a A'];
+  const ordAtual = RESTRICAO_ORDEM && RESTRICAO_ORDEM.k===col.k ? RESTRICAO_ORDEM.dir : null;
+  pop.innerHTML = `<button type="button" class="rfp-ord${ordAtual==='asc'?' ativo':''}" data-ord="asc">▲ ${rotOrd[0]}</button>
+    <button type="button" class="rfp-ord${ordAtual==='desc'?' ativo':''}" data-ord="desc">▼ ${rotOrd[1]}</button>
+    <div class="menu-sep"></div>
+    <input type="text" class="rfp-busca" placeholder="Pesquisar" autocomplete="off">
     <label class="rfp-item rfp-todos"><input type="checkbox" id="rfpTodos"><span>(Selecionar tudo)</span></label>
     <div class="rfp-lista" id="rfpLista"></div>
     <div class="rfp-rodape">
@@ -4866,6 +4908,14 @@ function restricaoAbreFiltro(btn, col){
   todos.addEventListener('change', ()=>{
     visiveis().forEach(i=>{ if(todos.checked) sel.add(i.k); else sel.delete(i.k); });
     pinta();
+  });
+  pop.querySelectorAll('.rfp-ord').forEach(b=>{
+    b.onclick = ()=>{
+      const dir = b.dataset.ord;
+      RESTRICAO_ORDEM = (ordAtual===dir) ? null : {k: col.k, dir}; // clicar na que já está ativa desliga
+      restricaoFechaFiltro();
+      renderRestricoes();
+    };
   });
   pop.querySelector('#rfpCancelar').onclick = restricaoFechaFiltro;
   pop.querySelector('#rfpLimpar').onclick = ()=>{ delete RESTRICAO_FILTROS[col.k]; restricaoFechaFiltro(); renderRestricoes(); };
@@ -5019,9 +5069,9 @@ function renderRestricoes(){
   restricaoFechaMenu();
   restricaoFechaFiltro();
   const nq = restricaoNorm(RESTRICAO_SEARCH.trim());
-  const list = RESTRICOES
+  const list = restricaoOrdena(RESTRICOES
     .map((r,i)=>({...r, item:i+1}))
-    .filter(r=> restricaoPassaBusca(r, nq) && restricaoPassaFiltros(r));
+    .filter(r=> restricaoPassaBusca(r, nq) && restricaoPassaFiltros(r)));
   const nFiltros = Object.keys(RESTRICAO_FILTROS).filter(k=>RESTRICAO_FILTROS[k]!=='').length;
   const auto = restricaoAutonomia(); // planejador/coordenador: autonomia total; visualizador: observação + criar
   const pacoteOpts = (LOOKUPS.pacotes||[]).map(n=>`<option value="${restricaoEsc(n)}">`).join('');
@@ -5117,6 +5167,19 @@ function wireRestricoes(){
     b.addEventListener('click', e=>{
       e.stopPropagation();
       restricaoAbreFiltro(b, RESTRICAO_COLS.find(c=>c.k===b.dataset.rfbtn));
+    });
+  });
+  // clicar no título classifica: números do MAIOR pro menor primeiro (é como a GUT é apresentada), texto e
+  // datas do começo pro fim; clicar de novo inverte; um terceiro clique volta à ordem de cadastro
+  document.querySelectorAll('[data-rsort]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const k = el.dataset.rsort;
+      const col = RESTRICAO_COLS.find(c=>c.k===k);
+      const primeiro = col.num ? 'desc' : 'asc';
+      if(!RESTRICAO_ORDEM || RESTRICAO_ORDEM.k!==k) RESTRICAO_ORDEM = {k, dir:primeiro};
+      else if(RESTRICAO_ORDEM.dir===primeiro) RESTRICAO_ORDEM = {k, dir: primeiro==='asc' ? 'desc' : 'asc'};
+      else RESTRICAO_ORDEM = null;
+      renderRestricoes();
     });
   });
   const btnLimpar = document.getElementById('btnLimparFiltros');
