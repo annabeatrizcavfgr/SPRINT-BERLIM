@@ -451,10 +451,15 @@ details.card summary .ind-pills{text-transform:none; letter-spacing:0; font-fami
 .restricao-ind-table td{padding:8px; white-space:normal;}
 .restricao-ind-table td.left{text-align:left; max-width:300px;}
 .restricao-ind-table td.ind-atraso{background:#FDE6E6; color:#B3261E; font-weight:800; font-size:15px; width:80px;}
-.ind-bars{max-height:300px; overflow-y:auto; padding-right:6px;}
-.ind-bar-row{display:grid; grid-template-columns:minmax(90px,150px) 1fr 34px; align-items:center; gap:10px; padding:4px 0; font-size:13px;}
-.ind-bar-lbl{text-align:right; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.ind-bar-track{display:block; height:20px;}
+/* três colunas alinhadas entre as linhas: nome COMPLETO (quebra de linha se for enorme, sem "…"), barra
+   curta (no máximo ~280px — antes ocupava a largura toda e, com tudo igual a 1, ficava gigante) e o número */
+.ind-bars{
+  display:grid; grid-template-columns:minmax(0,max-content) minmax(80px,280px) 34px; column-gap:10px; row-gap:7px;
+  align-items:center; justify-content:start; max-height:320px; overflow-y:auto; padding-right:6px; font-size:13px;
+}
+.ind-bar-row{display:contents;}
+.ind-bar-lbl{text-align:right; font-weight:600; max-width:340px; white-space:normal; overflow-wrap:anywhere; line-height:1.25;}
+.ind-bar-track{display:block; height:20px; width:100%;}
 .ind-bar-fill{display:block; height:100%; border-radius:4px; background:var(--accent);}
 .ind-bar-fill.vazio{background:var(--border);}
 .ind-bar-n{font-weight:800; font-family:var(--font-mono);}
@@ -5579,7 +5584,8 @@ function restricaoIndTabela(titulo, sub, colunaLabel, linhas, celula, vazio){
   </div>`;
 }
 function restricaoIndBarras(titulo, sub, dados){
-  const max = Math.max(1, ...dados.map(d=>d.count));
+  // escala mínima de 5: com poucas restrições (todas com contagem 1) as barras não viram uma faixa cheia
+  const max = Math.max(5, ...dados.map(d=>d.count));
   return `<div class="ind-box">
     <div class="ind-titulo">${titulo}</div><div class="pkg-meta" style="margin:0 0 8px;">${sub}</div>
     ${dados.length ? `<div class="ind-bars">${dados.map(d=>`<div class="ind-bar-row"><span class="ind-bar-lbl" title="${restricaoEsc(d.label)}">${restricaoEsc(d.label)}</span><span class="ind-bar-track"><span class="ind-bar-fill${d.vazio?' vazio':''}" style="width:${Math.max(3, d.count/max*100)}%"></span></span><span class="ind-bar-n">${d.count}</span></div>`).join('')}</div>` : '<p class="empty-note">Nenhuma restrição nesse recorte.</p>'}
