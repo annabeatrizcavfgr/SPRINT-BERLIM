@@ -286,11 +286,31 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .panel-table.restricao-table tbody tr:last-child td{border-bottom:none;}
 .restricao-table td.left{max-width:150px; text-align:left;}
 .restricao-table .restricao-servico-cell{max-width:110px;}
-.restricao-table .rf-input{
-  width:100%; min-width:46px; box-sizing:border-box; margin-top:6px; padding:3px 5px; font-size:11.5px;
-  border-radius:5px; border:1px solid transparent; background:#fff; color:#222; text-transform:none;
+/* seta de filtro (estilo Excel) no título da coluna; amarela quando há filtro aplicado */
+.restricao-table .rf-btn{
+  appearance:none; margin-left:3px; padding:0 4px; border:none; border-radius:4px; vertical-align:middle;
+  background:rgba(255,255,255,.14); color:#fff; font:inherit; font-size:11px; line-height:16px; cursor:pointer;
 }
-.restricao-table .rf-input:disabled{opacity:.55; cursor:not-allowed;}
+.restricao-table .rf-btn:hover{background:rgba(255,255,255,.3);}
+.restricao-table .rf-btn.ativo{background:#F5D663; color:#25303b;}
+.restricao-filtro-pop{
+  position:fixed; z-index:9999; width:250px; box-sizing:border-box; padding:8px; font-size:13px;
+  background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.22);
+}
+.restricao-filtro-pop .rfp-busca{width:100%; box-sizing:border-box; margin:0 0 6px; padding:6px 8px; font-size:13px;}
+.restricao-filtro-pop .rfp-item{
+  display:flex; align-items:center; gap:7px; margin:0; padding:4px 6px; border-radius:4px; cursor:pointer;
+  font-size:13px; font-weight:400; text-transform:none; letter-spacing:0; line-height:1.3; color:var(--text);
+}
+.restricao-filtro-pop .rfp-item:hover{background:var(--surface-2);}
+.restricao-filtro-pop .rfp-item input{margin:0; flex-shrink:0;}
+.restricao-filtro-pop .rfp-todos{font-weight:700;}
+.restricao-filtro-pop .rfp-lista{
+  max-height:220px; overflow:auto; padding:2px; border:1px solid var(--border); border-radius:6px; margin-top:2px;
+}
+.restricao-filtro-pop .rfp-vazio{padding:8px; color:var(--text-muted);}
+.restricao-filtro-pop .rfp-rodape{display:flex; align-items:center; gap:6px; margin-top:8px;}
 .restricao-pill{
   display:inline-block; min-width:92px; padding:6px 10px; border-radius:6px; font-size:11px; font-weight:800;
   text-transform:uppercase; letter-spacing:.02em; text-align:center; color:#25303b;
@@ -1879,7 +1899,7 @@ async function initDb(){
   PRESENTATION_MODE = false; CAUSAS_FILTRO_PACOTES = null; CAUSAS_FILTRO_PERIODOS = null;
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
-  RESTRICAO_FILTROS = {}; RESTRICAO_FILTROS_OPEN = false;
+  RESTRICAO_FILTROS = {};
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -4317,8 +4337,9 @@ let RESTRICAO_SEARCH = '';
 let RESTRICAO_DRAFT = null;         // rascunho da restrição nova (null = nenhuma sendo criada)
 let RESTRICAO_DRAFT_FOCUS = false;
 let RESTRICAO_COLW = null;          // larguras das colunas congeladas enquanto o rascunho está aberto
-let RESTRICAO_FILTROS = {};        // { colKey: valor } — filtro por coluna
-let RESTRICAO_FILTROS_OPEN = false; // linha de filtros visível no cabeçalho (botão "Filtros")
+// Filtro estilo Excel (2026-10-05): seta em cada título de coluna abre uma lista com pesquisa e caixas
+// de seleção dos valores. { colKey: [valores marcados] } — coluna ausente = sem filtro.
+let RESTRICAO_FILTROS = {};
 function restricaoEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function restricaoNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
 // "Nível" da restrição (2026-10-05, pedido dela): em qual fórum ela é acompanhada.
@@ -4388,44 +4409,35 @@ function restricaoGutNome(letter, v){
 }
 // faixa da classificação: hi (≥64), md (≥27), lo (resto), none (sem G/U/T completos)
 function restricaoClsKey(c){ return c==null ? 'none' : c>=64 ? 'hi' : c>=27 ? 'md' : 'lo'; }
+// fv = chave do valor usada pelo filtro; fl = rótulo mostrado na lista de valores; num = ordena como
+// número; raw = colunas de texto (a chave ignora maiúsculas/acentos, o rótulo é o texto original)
 const RESTRICAO_COLS = [
-  {k:'item', label:'Item', t:'num', val:r=>r.item},
-  {k:'nivel', label:'Nível', t:'sel', val:r=>r.nivel||'', opts:RESTRICAO_NIVEIS.map(n=>({v:n.v,label:n.label}))},
-  {k:'servico', label:'Serviço', t:'txt', val:r=>r.servico},
-  {k:'data', label:'Data', t:'txt', val:r=>r.data?fmtDate2(r.data):''},
-  {k:'dias', label:'Dias em<br>andamento', t:'num', val:r=>restricaoDias(r)},
-  {k:'eng', label:'Responsável', t:'txt', val:r=>r.eng},
-  {k:'coordenador', label:'Coordenador', t:'txt', val:r=>r.coordenador},
-  {k:'restricao', label:'Restrição', t:'txt', val:r=>r.restricao},
-  {k:'solucao', label:'Observação', t:'txt', val:r=>r.solucao},
-  {k:'dataResolucao', label:'Data de<br>resolução', t:'txt', val:r=>r.dataResolucao?fmtDate2(r.dataResolucao):''},
-  {k:'status', label:'Status', t:'sel', val:r=>restricaoStatusKey(r.status), opts:[
-    {v:'aberto',label:'Não iniciado'},{v:'em_andamento',label:'Em andamento'},{v:'resolvido',label:'Resolvido'}]},
-  {k:'g', label:'G', title:'Gravidade', t:'sel', val:r=>r.g==null?'':String(r.g), opts:[5,4,3,2,1].map(n=>({v:String(n),label:String(n)}))},
-  {k:'u', label:'U', title:'Urgência', t:'sel', val:r=>r.u==null?'':String(r.u), opts:[5,4,3,2,1].map(n=>({v:String(n),label:String(n)}))},
-  {k:'t', label:'T', title:'Tendência', t:'sel', val:r=>r.t==null?'':String(r.t), opts:[5,4,3,2,1].map(n=>({v:String(n),label:String(n)}))},
-  {k:'cls', label:'Classificação<br>(G×U×T)', t:'sel', val:r=>restricaoClsKey(restricaoCls(r)), opts:[
-    {v:'hi',label:'≥ 64'},{v:'md',label:'27 a 63'},{v:'lo',label:'< 27'},{v:'none',label:'Sem classificação'}]},
+  {k:'item', label:'Item', num:true, fv:r=>String(r.item)},
+  {k:'nivel', label:'Nível', fv:r=>r.nivel||'', fl:restricaoNivelLabel},
+  {k:'servico', label:'Serviço', raw:r=>r.servico},
+  {k:'data', label:'Data', fv:r=>r.data||'', fl:v=>fmtDate2(v)},
+  {k:'dias', label:'Dias em<br>andamento', num:true, fv:r=>{ const d = restricaoDias(r); return d==null ? '' : String(d); }},
+  {k:'eng', label:'Responsável', raw:r=>r.eng},
+  {k:'coordenador', label:'Coordenador', raw:r=>r.coordenador},
+  {k:'restricao', label:'Restrição', raw:r=>r.restricao},
+  {k:'solucao', label:'Observação', raw:r=>r.solucao},
+  {k:'dataResolucao', label:'Data de<br>resolução', fv:r=>r.dataResolucao||'', fl:v=>fmtDate2(v)},
+  {k:'status', label:'Status', fv:r=>restricaoStatusKey(r.status), fl:restricaoStatusLabel},
+  {k:'g', label:'G', title:'Gravidade', num:true, fv:r=>r.g==null?'':String(r.g), fl:v=>`${v} - ${restricaoGutNome('g',v)}`},
+  {k:'u', label:'U', title:'Urgência', num:true, fv:r=>r.u==null?'':String(r.u), fl:v=>`${v} - ${restricaoGutNome('u',v)}`},
+  {k:'t', label:'T', title:'Tendência', num:true, fv:r=>r.t==null?'':String(r.t), fl:v=>`${v} - ${restricaoGutNome('t',v)}`},
+  {k:'cls', label:'Classificação<br>(G×U×T)', num:true, fv:r=>{ const c = restricaoCls(r); return c==null ? '' : String(c); }},
 ];
+RESTRICAO_COLS.forEach(c=>{ if(c.raw) c.fv = r=>restricaoNorm(String(c.raw(r)==null?'':c.raw(r)).trim()); });
 // como cada coluna é editada ao clicar na célula: texto, área (texto longo), data ou menu flutuante
 const RESTRICAO_TIPO = {nivel:'menu', servico:'text', data:'date', eng:'text', coordenador:'text',
   restricao:'area', solucao:'area', dataResolucao:'date', status:'menu', g:'menu', u:'menu', t:'menu'};
-function restricaoNumMatch(val, expr){
-  expr = String(expr).trim();
-  if(/^(>=|<=|>|<|=)$/.test(expr)) return true;
-  const m = expr.match(/^(>=|<=|>|<|=)?\s*(\d+)$/);
-  if(!m || val==null || val==='') return false;
-  const n = Number(m[2]), v = Number(val), op = m[1] || '=';
-  return op==='>' ? v>n : op==='<' ? v<n : op==='>=' ? v>=n : op==='<=' ? v<=n : v===n;
-}
-function restricaoPassaFiltros(r){
+// `ignora` = coluna cujo próprio filtro não conta (usado pra montar a lista de valores dela)
+function restricaoPassaFiltros(r, ignora){
   for(const col of RESTRICAO_COLS){
+    if(col.k===ignora) continue;
     const f = RESTRICAO_FILTROS[col.k];
-    if(f==null || f==='') continue;
-    const val = col.val(r);
-    if(col.t==='sel'){ if(String(val)!==f) return false; }
-    else if(col.t==='num'){ if(!restricaoNumMatch(val, f)) return false; }
-    else if(!restricaoNorm(val).includes(restricaoNorm(f))) return false;
+    if(f && !f.includes(col.fv(r))) return false;
   }
   return true;
 }
@@ -4434,18 +4446,108 @@ function restricaoPassaBusca(r, nq){
   return [r.servico, r.eng, r.coordenador, r.restricao, r.solucao, restricaoStatusLabel(r.status), restricaoNivelLabel(r.nivel)]
     .some(x=>restricaoNorm(x).includes(nq));
 }
-function restricaoThHtml(col, travado){
-  let ctl = '';
-  if(RESTRICAO_FILTROS_OPEN){
-    const cur = RESTRICAO_FILTROS[col.k] || '';
-    const dis = travado ? ' disabled title="Salve ou cancele a nova restrição para filtrar"' : '';
-    if(col.t==='sel'){
-      ctl = `<select class="rf-input" id="rf_${col.k}" data-rfiltro="${col.k}"${dis}><option value="">Todos</option>${col.opts.map(o=>`<option value="${o.v}" ${cur===o.v?'selected':''}>${o.label}</option>`).join('')}</select>`;
-    } else {
-      ctl = `<input class="rf-input" id="rf_${col.k}" data-rfiltro="${col.k}" value="${restricaoEsc(cur)}" placeholder="${col.t==='num'?'ex: >10':'filtrar'}"${dis}>`;
-    }
-  }
-  return `<th${col.title?` title="${col.title}"`:''}>${col.label}${ctl}</th>`;
+function restricaoThHtml(col){
+  const ativo = !!RESTRICAO_FILTROS[col.k];
+  return `<th${col.title?` title="${col.title}"`:''}>${col.label}<button type="button" class="rf-btn${ativo?' ativo':''}" data-rfbtn="${col.k}" title="${ativo?'Filtro aplicado — clique para alterar':'Filtrar'}" aria-label="Filtrar coluna">▾</button></th>`;
+}
+// ---- Filtro estilo Excel: lista de valores com pesquisa, "(Selecionar tudo)", OK / Cancelar ----
+function restricaoFechaFiltro(){
+  const p = document.getElementById('restricaoFiltroPop');
+  if(p) p.remove();
+  document.removeEventListener('mousedown', restricaoFiltroFora, true);
+  document.removeEventListener('keydown', restricaoFiltroTecla, true);
+  window.removeEventListener('scroll', restricaoFiltroScroll, true);
+}
+function restricaoFiltroFora(e){ if(!e.target.closest('#restricaoFiltroPop') && !e.target.closest('[data-rfbtn]')) restricaoFechaFiltro(); }
+function restricaoFiltroTecla(e){ if(e.key==='Escape'){ e.preventDefault(); restricaoFechaFiltro(); } }
+function restricaoFiltroScroll(e){ if(!(e.target.nodeType===1 && e.target.closest('#restricaoFiltroPop'))) restricaoFechaFiltro(); }
+function restricaoAbreFiltro(btn, col){
+  restricaoFechaMenu();
+  const aberto = document.getElementById('restricaoFiltroPop');
+  const mesma = aberto && aberto.dataset.col===col.k;
+  restricaoFechaFiltro();
+  if(mesma) return; // clicar de novo na seta fecha
+  const nq = restricaoNorm(RESTRICAO_SEARCH.trim());
+  const todas = RESTRICOES.map((r,i)=>({...r, item:i+1}));
+  const todasChaves = [...new Set(todas.map(r=>col.fv(r)))];
+  // a lista mostra só os valores que sobraram depois da busca e dos filtros das OUTRAS colunas (como no Excel)
+  const base = todas.filter(r=> restricaoPassaBusca(r, nq) && restricaoPassaFiltros(r, col.k));
+  const mapa = new Map();
+  base.forEach(r=>{
+    const k = col.fv(r);
+    if(!mapa.has(k)) mapa.set(k, k==='' ? '(Vazias)' : col.fl ? col.fl(k) : col.raw ? String(col.raw(r)).trim() : k);
+  });
+  const itens = [...mapa].map(([k,l])=>({k,l}));
+  itens.sort((a,b)=>{
+    if(a.k==='') return 1;
+    if(b.k==='') return -1;
+    return col.num ? Number(a.k)-Number(b.k) : a.k.localeCompare(b.k, 'pt');
+  });
+  const atual = RESTRICAO_FILTROS[col.k];
+  const sel = new Set(atual ? atual : itens.map(i=>i.k));
+  // valores que não aparecem na lista (escondidos por outro filtro) mantêm o estado que já tinham
+  const fora = todasChaves.filter(k=>!mapa.has(k) && (!atual || atual.includes(k)));
+  const pop = document.createElement('div');
+  pop.id = 'restricaoFiltroPop'; pop.className = 'restricao-filtro-pop'; pop.dataset.col = col.k;
+  pop.innerHTML = `<input type="text" class="rfp-busca" placeholder="Pesquisar" autocomplete="off">
+    <label class="rfp-item rfp-todos"><input type="checkbox" id="rfpTodos"><span>(Selecionar tudo)</span></label>
+    <div class="rfp-lista" id="rfpLista"></div>
+    <div class="rfp-rodape">
+      <button type="button" class="btn btn-sm" id="rfpLimpar"${atual?'':' disabled'}>Limpar filtro</button>
+      <span style="flex:1;"></span>
+      <button type="button" class="btn btn-sm" id="rfpCancelar">Cancelar</button>
+      <button type="button" class="btn btn-sm btn-primary" id="rfpOk">OK</button>
+    </div>`;
+  document.body.appendChild(pop);
+  const busca = pop.querySelector('.rfp-busca'), lista = pop.querySelector('#rfpLista');
+  const todos = pop.querySelector('#rfpTodos'), ok = pop.querySelector('#rfpOk');
+  const visiveis = ()=>{ const q = restricaoNorm(busca.value.trim()); return q ? itens.filter(i=>restricaoNorm(i.l).includes(q)) : itens; };
+  const atualizaTodos = ()=>{
+    const v = visiveis(), marc = v.filter(i=>sel.has(i.k)).length;
+    todos.checked = v.length>0 && marc===v.length;
+    todos.indeterminate = marc>0 && marc<v.length;
+    ok.disabled = marc===0;
+  };
+  const pinta = ()=>{
+    const v = visiveis();
+    lista.innerHTML = v.length
+      ? v.map(i=>`<label class="rfp-item"><input type="checkbox" data-k="${restricaoEsc(i.k)}" ${sel.has(i.k)?'checked':''}><span>${restricaoEsc(i.l)}</span></label>`).join('')
+      : '<div class="rfp-vazio">Nenhum resultado</div>';
+    atualizaTodos();
+  };
+  pinta();
+  busca.addEventListener('input', pinta);
+  busca.addEventListener('keydown', e=>{ if(e.key==='Enter' && !ok.disabled){ e.preventDefault(); ok.click(); } });
+  lista.addEventListener('change', e=>{
+    const cb = e.target.closest('input[data-k]');
+    if(!cb) return;
+    if(cb.checked) sel.add(cb.dataset.k); else sel.delete(cb.dataset.k);
+    atualizaTodos();
+  });
+  todos.addEventListener('change', ()=>{
+    visiveis().forEach(i=>{ if(todos.checked) sel.add(i.k); else sel.delete(i.k); });
+    pinta();
+  });
+  pop.querySelector('#rfpCancelar').onclick = restricaoFechaFiltro;
+  pop.querySelector('#rfpLimpar').onclick = ()=>{ delete RESTRICAO_FILTROS[col.k]; restricaoFechaFiltro(); renderRestricoes(); };
+  ok.onclick = ()=>{
+    // com pesquisa digitada vale só o que está visível e marcado (igual ao Excel)
+    const escolhidos = (busca.value.trim() ? visiveis() : itens).filter(i=>sel.has(i.k)).map(i=>i.k);
+    const final = escolhidos.concat(fora);
+    if(todasChaves.every(k=>final.includes(k))) delete RESTRICAO_FILTROS[col.k];
+    else RESTRICAO_FILTROS[col.k] = final;
+    restricaoFechaFiltro();
+    renderRestricoes();
+  };
+  const rc = btn.getBoundingClientRect();
+  const left = Math.max(8, Math.min(rc.left - 20, window.innerWidth - pop.offsetWidth - 8));
+  const abaixo = rc.bottom + 4 + pop.offsetHeight <= window.innerHeight;
+  pop.style.left = left + 'px';
+  pop.style.top = (abaixo ? rc.bottom + 4 : Math.max(8, window.innerHeight - pop.offsetHeight - 8)) + 'px';
+  document.addEventListener('mousedown', restricaoFiltroFora, true);
+  document.addEventListener('keydown', restricaoFiltroTecla, true);
+  window.addEventListener('scroll', restricaoFiltroScroll, true);
+  busca.focus();
 }
 // conteúdo de exibição de uma célula editável (igual na linha normal e no rascunho)
 function restricaoCelulaInner(campo, r){
@@ -4573,12 +4675,12 @@ function restricaoRascunhoNovo(){
 }
 function renderRestricoes(){
   restricaoFechaMenu();
+  restricaoFechaFiltro();
   const nq = restricaoNorm(RESTRICAO_SEARCH.trim());
   const list = RESTRICOES
     .map((r,i)=>({...r, item:i+1}))
     .filter(r=> restricaoPassaBusca(r, nq) && restricaoPassaFiltros(r));
   const nFiltros = Object.keys(RESTRICAO_FILTROS).filter(k=>RESTRICAO_FILTROS[k]!=='').length;
-  const travado = !!RESTRICAO_DRAFT; // filtrar redesenha a tabela e perderia o que foi digitado na linha nova
   const ehPlan = MY_ROLE==='planejador';
   const pacoteOpts = (LOOKUPS.pacotes||[]).map(n=>`<option value="${restricaoEsc(n)}">`).join('');
   const colgroup = RESTRICAO_COLW ? `<colgroup>${RESTRICAO_COLW.map(w=>`<col style="width:${w}px">`).join('')}</colgroup>` : '';
@@ -4590,17 +4692,17 @@ function renderRestricoes(){
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
         <h3 class="section-title" style="margin:0;">🚧 Restrições</h3>
         <div class="restricao-busca">
-          <input class="search-input" id="restricaoSearch" placeholder="Buscar por restrição, serviço, responsável ou status..." value="${restricaoEsc(RESTRICAO_SEARCH)}"${travado?' disabled title="Salve ou cancele a nova restrição para buscar"':''}>
+          <input class="search-input" id="restricaoSearch" placeholder="Buscar por restrição, serviço, responsável ou status..." value="${restricaoEsc(RESTRICAO_SEARCH)}">
         </div>
-        <button class="btn" id="btnRestricaoFiltros">⚲ Filtros${nFiltros?` (${nFiltros})`:''}</button>
-        ${ehPlan && !travado ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
+        ${nFiltros ? `<button class="btn" id="btnLimparFiltros" title="Remover os filtros de todas as colunas">✕ Limpar filtros (${nFiltros})</button>` : ''}
+        ${ehPlan && !RESTRICAO_DRAFT ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
       <div class="panel-table-wrap restricao-wrap">
       <table class="rank-table panel-table restricao-table"${RESTRICAO_COLW?' style="table-layout:fixed;"':''}>
         ${colgroup}
         <thead><tr>
-          ${RESTRICAO_COLS.map(c=>restricaoThHtml(c, travado)).join('')}
-          ${ehPlan ? `<th style="min-width:58px;">${RESTRICAO_FILTROS_OPEN && nFiltros ? '<button type="button" class="btn btn-sm" id="btnLimparFiltros" style="margin:0;">Limpar</button>' : ''}</th>` : ''}
+          ${RESTRICAO_COLS.map(c=>restricaoThHtml(c)).join('')}
+          ${ehPlan ? '<th style="min-width:58px;"></th>' : ''}
         </tr></thead>
         <tbody>
           ${ehPlan && RESTRICAO_DRAFT ? restricaoRascunhoLinhaHtml() : ''}
@@ -4666,13 +4768,10 @@ async function restricaoSalvaRascunho(){
 function wireRestricoes(){
   const search = document.getElementById('restricaoSearch');
   search.addEventListener('input', e=>{ RESTRICAO_SEARCH = e.target.value; restricaoRedesenhaMantendoFoco(search); });
-  document.getElementById('btnRestricaoFiltros').onclick = ()=>{ RESTRICAO_FILTROS_OPEN = !RESTRICAO_FILTROS_OPEN; renderRestricoes(); };
-  document.querySelectorAll('[data-rfiltro]').forEach(el=>{
-    const evt = el.tagName==='SELECT' ? 'change' : 'input';
-    el.addEventListener(evt, ()=>{
-      const k = el.dataset.rfiltro;
-      if(el.value==='') delete RESTRICAO_FILTROS[k]; else RESTRICAO_FILTROS[k] = el.value;
-      restricaoRedesenhaMantendoFoco(el);
+  document.querySelectorAll('[data-rfbtn]').forEach(b=>{
+    b.addEventListener('click', e=>{
+      e.stopPropagation();
+      restricaoAbreFiltro(b, RESTRICAO_COLS.find(c=>c.k===b.dataset.rfbtn));
     });
   });
   const btnLimpar = document.getElementById('btnLimparFiltros');
