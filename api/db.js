@@ -139,6 +139,19 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
+      // vários documentos de uma vez na mesma coleção (importação da GUT do Excel, 2026-10-05): uma
+      // única chamada e um único INSERT — ou entram todos ou nenhum. Os ids saem em ordem de criação
+      // (timestamp + posição), pra a matriz manter a ordem da planilha.
+      if (action === 'addMany') {
+        if (!Array.isArray(data) || data.length === 0) return res.status(400).json({ error: 'data precisa ser uma lista com pelo menos 1 item' });
+        if (data.length > 1000) return res.status(400).json({ error: 'maximo de 1000 itens por vez' });
+        const base = Date.now();
+        const ids = data.map((_, i) => 'id_' + (base + i) + '_' + Math.random().toString(36).slice(2, 8));
+        const { error } = await supabase.from('docs').insert(data.map((value, i) => ({ path: path + '/' + ids[i], value })));
+        if (error) throw error;
+        return res.status(200).json({ ids });
+      }
+
       if (action === 'add') {
         const id = 'id_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
         const { error } = await supabase.from('docs').insert({ path: path + '/' + id, value: data });

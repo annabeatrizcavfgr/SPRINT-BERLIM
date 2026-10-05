@@ -1361,7 +1361,7 @@ function checkWritable(path, action){
   if(MY_ROLE === 'planejador') return true;
   if(typeof path === 'string' && /^obras\/[^/]+\/restricoes(\/|$)/.test(path)){
     if(MY_ROLE === 'coordenador') return true;
-    if(MY_ROLE === 'visualizador' && action !== 'delete') return true;
+    if(MY_ROLE === 'visualizador' && (action === 'add' || action === 'set')) return true;
   }
   toast('Você está como '+(ROLE_LABEL[MY_ROLE]||MY_ROLE).toLowerCase()+' — peça pra um "planejador" fazer essa alteração.', 'warn');
   return false;
@@ -1412,6 +1412,14 @@ function createRemoteDb(){
         await dbRespostaOk(r.clone());
         const j = await r.json();
         return { id: j.id };
+      },
+      // vários de uma vez (importação da GUT do Excel) — devolve os ids na mesma ordem da lista
+      async addMany(values){
+        if(!checkWritable(path, 'addMany')) return { ids: [] };
+        const r = await fetch(API, {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({path, action:'addMany', data:values})});
+        await dbRespostaOk(r.clone());
+        const j = await r.json();
+        return { ids: j.ids || [] };
       },
       orderBy(field, dir){ state.field=field; state.dir=dir||'asc'; return this; },
       limit(n){ state.n=n; return this; },
@@ -1488,6 +1496,18 @@ function createLocalDb(){
         node[id] = { [DATA]: JSON.parse(JSON.stringify(value)) };
         writeRoot(root);
         return { id };
+      },
+      async addMany(values){
+        const root = readRoot();
+        const node = nodeAt(root, parts, true);
+        const base = Date.now();
+        const ids = values.map((value, i)=>{
+          const id = 'local_'+(base+i)+'_'+Math.random().toString(36).slice(2,8);
+          node[id] = { [DATA]: JSON.parse(JSON.stringify(value)) };
+          return id;
+        });
+        writeRoot(root);
+        return { ids };
       },
       orderBy(field, dir){ state.field = field; state.dir = dir||'asc'; return this; },
       limit(n){ state.n = n; return this; },
@@ -2619,6 +2639,21 @@ async function saveRestricao(entry){
     toast('Falha ao cadastrar: '+(e && e.message ? e.message : e), 'err');
     return false;
   }
+}
+// grava várias de uma vez (importação da GUT) — sempre ACRESCENTA, nunca troca o que já existe
+async function saveRestricoesLote(lista){
+  if(!lista.length) return 0;
+  if(!db){ lista.forEach((e,i)=>RESTRICOES.push({id:'local'+Date.now()+'_'+i, ...e})); return lista.length; }
+  const col = db.collection('restricoes');
+  if(typeof col.addMany === 'function'){
+    const r = await col.addMany(lista);
+    if(!r.ids || r.ids.length!==lista.length) return 0; // checkWritable já avisou
+    r.ids.forEach((id,i)=>RESTRICOES.push({id, ...lista[i]}));
+    return lista.length;
+  }
+  let n = 0;
+  for(const e of lista){ const ref = await col.add(e); if(ref && ref.id){ RESTRICOES.push({id:ref.id, ...e}); n++; } }
+  return n;
 }
 async function updateRestricao(id, patch){
   const r = RESTRICOES.find(x=>x.id===id);
@@ -4663,6 +4698,9 @@ function restricaoDias(r){
   const ini = restricaoParseDia(r.data);
   if(!ini) return null;
   const fimResolvido = r.status==='resolvido' ? restricaoParseDia(r.dataResolucao) : null;
+  // resolvida SEM data de resolução (caso das restrições importadas do Excel antigo): não dá pra saber
+  // quando terminou, então não mostra um número que continuaria crescendo pra sempre
+  if(r.status==='resolvido' && !fimResolvido) return null;
   const fim = fimResolvido || restricaoHoje();
   return Math.max(0, Math.round((fim.getTime() - ini.getTime())/86400000));
 }
@@ -4999,6 +5037,7 @@ function renderRestricoes(){
           <input class="search-input" id="restricaoSearch" placeholder="Buscar por restrição, serviço, responsável ou status..." value="${restricaoEsc(RESTRICAO_SEARCH)}">
         </div>
         ${nFiltros ? `<button class="btn" id="btnLimparFiltros" title="Remover os filtros de todas as colunas">✕ Limpar filtros (${nFiltros})</button>` : ''}
+        ${auto && !RESTRICAO_DRAFT ? `<button class="btn" id="btnImportarGut" title="Sobe a planilha da GUT (Excel) e ACRESCENTA as restrições novas à matriz, sem trocar nem duplicar o que já existe">${ico('upload')} Importar Excel</button>` : ''}
         ${!RESTRICAO_DRAFT ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
       ${auto ? '' : `<div class="restricao-aviso">ℹ️ Você está como <strong>visualizador</strong>: aqui você pode <strong>criar restrições novas</strong> (sempre no nível Check-in) e <strong>editar a observação</strong> de qualquer uma. Os demais campos, o nível e a exclusão são de coordenador e planejador — esses campos aparecem travados.</div>`}
@@ -5082,6 +5121,8 @@ function wireRestricoes(){
   });
   const btnLimpar = document.getElementById('btnLimparFiltros');
   if(btnLimpar) btnLimpar.onclick = ()=>{ RESTRICAO_FILTROS = {}; renderRestricoes(); };
+  const btnImp = document.getElementById('btnImportarGut');
+  if(btnImp) btnImp.onclick = restricaoAbreImportacao;
   const btnNova = document.getElementById('btnNovaRestricao');
   if(btnNova) btnNova.onclick = ()=>{
     // congela a largura das colunas atuais: a linha nova tem campos e não pode deformar a tabela
@@ -5138,6 +5179,159 @@ function wireRestricoes(){
       if(success){ toast('Restrição excluída.'); renderRestricoes(); }
     };
   });
+}
+/* ===================================================================
+   IMPORTAR A GUT DO EXCEL (2026-10-05, pedido dela: "um botãozinho pra eu subir minha GUT atual e já
+   passar pra lá as infos. a cada vez que eu subir vc adiciona o que tem na GUT de Excel lá pro app, e
+   não substitui" + "vão faltar algumas infos... sobe com esses em branco e eu preencho").
+   - Só ACRESCENTA: o que já está na matriz nunca é trocado nem apagado. Restrição que já existe (mesmo
+     serviço + mesmo texto, e mesma data quando as duas têm) é pulada, pra subir a planilha de novo
+     toda semana sem duplicar.
+   - Abas ocultas (a "MATRIZ" antiga de 2024 do arquivo dela) não entram; vale toda aba VISÍVEL que tenha
+     as colunas Restrição + G + U + T.
+   - O que a planilha não tem (nível, coordenador, data de resolução…) fica em branco.
+=================================================================== */
+const GUT_IMPORT_CAMPOS = [ // ordem importa: o primeiro que casar leva
+  ['dataResolucao', /resolucao/],
+  ['medioPrazo', /^medio prazo/],
+  ['nivel', /^nivel/],
+  ['coordenador', /^coordenador/],
+  ['servico', /^servico/],
+  ['eng', /^eng/],
+  ['restricao', /^restricao/],
+  ['solucao', /^(solucao|observacao)/],
+  ['status', /^(resolvido|status)$/],
+  ['data', /^data$/],
+  ['g', /^g$/], ['u', /^u$/], ['t', /^t$/],
+];
+const GUT_IMPORT_ROTULOS = {servico:'Serviço', data:'Data', eng:'Responsável', restricao:'Restrição', solucao:'Observação',
+  status:'Status', g:'G', u:'U', t:'T', nivel:'Nível', coordenador:'Coordenador', dataResolucao:'Data de resolução'};
+function gutNormCab(v){ return restricaoNorm(v).replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim(); }
+function gutParseData(v){
+  if(v==null || v==='') return null;
+  if(typeof v==='number' && v>20000 && v<80000) return new Date(Date.UTC(1899,11,30) + Math.round(v*86400000)).toISOString().slice(0,10);
+  const s = String(v).trim();
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if(m){ let y = +m[3]; if(y<100) y += 2000; return y+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0'); }
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? m[0] : null;
+}
+function gutParseNota(v){ // "4 - Muito grave" ou 4 -> 4
+  if(v==null || v==='') return null;
+  const m = String(v).match(/^\s*([1-5])\b/);
+  return m ? Number(m[1]) : null;
+}
+function gutParseStatus(v){
+  const s = restricaoNorm(v).trim();
+  if(/^(sim|resolvid|conclu|finaliz)/.test(s)) return 'resolvido';
+  if(/andamento/.test(s)) return 'em_andamento';
+  return 'aberto';
+}
+function gutParseNivel(v){
+  const s = restricaoNorm(v).replace(/[^a-z]/g,'');
+  const n = RESTRICAO_NIVEIS.find(x=>restricaoNorm(x.label).replace(/[^a-z]/g,'')===s);
+  return n ? n.v : null;
+}
+// lê o .xlsx e devolve {abas:[{nome, total, colunas}], itens:[...restrições no formato do app]}
+function restricaoLeExcel(buf){
+  if(typeof XLSX==='undefined') throw new Error('a biblioteca de Excel não carregou — confira a internet e recarregue a página');
+  const wb = XLSX.read(buf, {type:'array'});
+  const meta = (wb.Workbook && wb.Workbook.Sheets) || [];
+  const abas = [], itens = [];
+  wb.SheetNames.forEach((nome, i)=>{
+    if(meta[i] && meta[i].Hidden) return; // aba oculta não entra
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[nome], {header:1, raw:true, defval:''});
+    let cab = -1, mapa = null;
+    for(let r=0; r<Math.min(rows.length, 40) && cab<0; r++){
+      const m = {};
+      rows[r].forEach((cel, c)=>{
+        const h = gutNormCab(cel);
+        if(!h) return;
+        const achou = GUT_IMPORT_CAMPOS.find(([campo, rx])=> m[campo]===undefined && rx.test(h));
+        if(achou) m[achou[0]] = c;
+      });
+      if(m.restricao!==undefined && m.g!==undefined && m.u!==undefined && m.t!==undefined){ cab = r; mapa = m; }
+    }
+    if(cab<0) return;
+    let total = 0;
+    for(let r=cab+1; r<rows.length; r++){
+      const row = rows[r];
+      const val = campo => mapa[campo]===undefined ? '' : row[mapa[campo]];
+      const restricao = String(val('restricao')==null ? '' : val('restricao')).trim();
+      if(!/[A-Za-z0-9À-ÿ]{2}/.test(restricao)) continue; // linha vazia / lixo
+      const txt = campo => String(val(campo)==null ? '' : val(campo)).replace(/\s+/g,' ').trim();
+      itens.push({
+        nivel: mapa.nivel!==undefined ? gutParseNivel(val('nivel')) : (mapa.medioPrazo!==undefined && /^s/i.test(restricaoNorm(val('medioPrazo'))) ? 'medio-prazo' : null),
+        servico: txt('servico'), data: gutParseData(val('data')), eng: txt('eng'), coordenador: txt('coordenador'),
+        restricao: restricao.replace(/\s+/g,' '), solucao: txt('solucao'), dataResolucao: gutParseData(val('dataResolucao')),
+        status: gutParseStatus(val('status')), g: gutParseNota(val('g')), u: gutParseNota(val('u')), t: gutParseNota(val('t')),
+      });
+      total++;
+    }
+    abas.push({nome, total, colunas: Object.keys(mapa).filter(k=>k!=='medioPrazo')});
+  });
+  if(!abas.length) throw new Error('não achei uma aba visível com as colunas Restrição, G, U e T');
+  return {abas, itens};
+}
+// separa o que é novo do que a matriz já tem (mesmo serviço + texto; e mesma data quando as duas têm)
+function restricaoSeparaNovas(itens, existentes){
+  const chave = e => restricaoNorm(e.servico)+'|'+restricaoNorm(e.restricao);
+  const porChave = new Map();
+  existentes.forEach(e=>{ const k = chave(e); if(!porChave.has(k)) porChave.set(k, []); porChave.get(k).push(e.data||''); });
+  const novas = [], repetidas = [];
+  itens.forEach(it=>{
+    const datas = porChave.get(chave(it));
+    const jaTem = datas && datas.some(d=> !d || !it.data || d===it.data);
+    (jaTem ? repetidas : novas).push(it);
+  });
+  return {novas, repetidas};
+}
+function restricaoAbreImportacao(){
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.xlsx,.xlsm';
+  inp.onchange = async ()=>{
+    const f = inp.files && inp.files[0];
+    if(!f) return;
+    try{
+      const res = restricaoLeExcel(await f.arrayBuffer());
+      const {novas, repetidas} = restricaoSeparaNovas(res.itens, RESTRICOES);
+      restricaoMostraPrevia(f.name, res, novas, repetidas);
+    }catch(e){
+      console.error('importar GUT failed', e);
+      toast('Não consegui ler essa planilha: '+(e && e.message ? e.message : e), 'err');
+    }
+  };
+  inp.click();
+}
+function restricaoMostraPrevia(nomeArquivo, res, novas, repetidas){
+  const colunas = new Set(res.abas.flatMap(a=>a.colunas));
+  const faltam = ['nivel','coordenador','dataResolucao','servico','data','eng','solucao','status'].filter(c=>!colunas.has(c)).map(c=>GUT_IMPORT_ROTULOS[c]);
+  const exemplo = novas.slice(0,5).map(n=>`<tr><td>${restricaoEsc(n.servico)||'—'}</td><td>${n.data?fmtDate2(n.data):'—'}</td><td class="left">${restricaoEsc(n.restricao)}</td><td>${restricaoStatusLabel(n.status)}</td></tr>`).join('');
+  openModal(`
+    <h3>Importar GUT do Excel</h3>
+    <p>Arquivo <strong>${restricaoEsc(nomeArquivo)}</strong> — aba${res.abas.length>1?'s':''} lida${res.abas.length>1?'s':''}: ${res.abas.map(a=>`<strong>${restricaoEsc(a.nome)}</strong> (${a.total} restrições)`).join(', ')}.</p>
+    <p><strong>${novas.length}</strong> restrição(ões) nova(s) serão <strong>acrescentadas</strong> à matriz${repetidas.length?` · ${repetidas.length} já estão na matriz e serão puladas (nada é trocado nem duplicado)`:''}.</p>
+    ${faltam.length ? `<p class="pkg-meta">Colunas que a planilha não tem — ficam em branco pra você preencher depois: ${faltam.join(', ')}.</p>` : ''}
+    ${exemplo ? `<div style="overflow-x:auto;"><table class="rank-table" style="font-size:12px;"><thead><tr><th>Serviço</th><th>Data</th><th>Restrição</th><th>Status</th></tr></thead><tbody>${exemplo}</tbody></table></div>${novas.length>5?`<p class="pkg-meta">…e mais ${novas.length-5}.</p>`:''}` : '<p class="empty-note">Não há nada novo pra acrescentar.</p>'}
+    <div class="modal-actions">
+      <button class="btn" id="gutImpCancelar">${novas.length?'Cancelar':'Fechar'}</button>
+      ${novas.length ? `<button class="btn btn-primary" id="gutImpOk">Acrescentar ${novas.length} restrição(ões)</button>` : ''}
+    </div>`);
+  document.getElementById('gutImpCancelar').onclick = closeModal;
+  const ok = document.getElementById('gutImpOk');
+  if(ok) ok.onclick = async ()=>{
+    ok.disabled = true; ok.textContent = 'Importando…';
+    try{
+      const n = await saveRestricoesLote(novas);
+      closeModal();
+      if(n) toast(n+' restrição(ões) acrescentada(s) à matriz.');
+      renderRestricoes();
+    }catch(e){
+      console.error('importar GUT save failed', e);
+      ok.disabled = false; ok.textContent = 'Tentar de novo';
+      toast('Falha ao importar: '+(e && e.message ? e.message : e), 'err');
+    }
+  };
 }
 function pctFmt(v){ return v==null ? '—' : Math.round(v*100)+'%'; }
 // IDP em formato numérico (0.99, 1.05), não percentual (99%, 105%) — pedido dela em 2026-09-09.
