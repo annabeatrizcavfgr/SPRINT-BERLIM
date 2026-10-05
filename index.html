@@ -5294,8 +5294,7 @@ function restricaoAbreImportacao(){
     if(!f) return;
     try{
       const res = restricaoLeExcel(await f.arrayBuffer());
-      const {novas, repetidas} = restricaoSeparaNovas(res.itens, RESTRICOES);
-      restricaoMostraPrevia(f.name, res, novas, repetidas);
+      restricaoMostraPrevia(f.name, res, true);
     }catch(e){
       console.error('importar GUT failed', e);
       toast('Não consegui ler essa planilha: '+(e && e.message ? e.message : e), 'err');
@@ -5303,13 +5302,19 @@ function restricaoAbreImportacao(){
   };
   inp.click();
 }
-function restricaoMostraPrevia(nomeArquivo, res, novas, repetidas){
+function restricaoMostraPrevia(nomeArquivo, res, soAbertas){
+  // por padrão sobe só o que NÃO está resolvido (pedido dela: "seria bom subir só as restrições que não
+  // foram resolvidas") — dá pra desmarcar pra trazer tudo
+  const resolvidas = res.itens.filter(i=>i.status==='resolvido').length;
+  const lidas = soAbertas ? res.itens.filter(i=>i.status!=='resolvido') : res.itens;
+  const {novas, repetidas} = restricaoSeparaNovas(lidas, RESTRICOES);
   const colunas = new Set(res.abas.flatMap(a=>a.colunas));
   const faltam = ['nivel','coordenador','dataResolucao','servico','data','eng','solucao','status'].filter(c=>!colunas.has(c)).map(c=>GUT_IMPORT_ROTULOS[c]);
   const exemplo = novas.slice(0,5).map(n=>`<tr><td>${restricaoEsc(n.servico)||'—'}</td><td>${n.data?fmtDate2(n.data):'—'}</td><td class="left">${restricaoEsc(n.restricao)}</td><td>${restricaoStatusLabel(n.status)}</td></tr>`).join('');
   openModal(`
     <h3>Importar GUT do Excel</h3>
     <p>Arquivo <strong>${restricaoEsc(nomeArquivo)}</strong> — aba${res.abas.length>1?'s':''} lida${res.abas.length>1?'s':''}: ${res.abas.map(a=>`<strong>${restricaoEsc(a.nome)}</strong> (${a.total} restrições)`).join(', ')}.</p>
+    <label style="display:flex; align-items:center; gap:8px; margin:0 0 10px; cursor:pointer;"><input type="checkbox" id="gutSoAbertas" ${soAbertas?'checked':''}> Importar só as que <strong>não estão resolvidas</strong> (${resolvidas} resolvida(s) ficam de fora)</label>
     <p><strong>${novas.length}</strong> restrição(ões) nova(s) serão <strong>acrescentadas</strong> à matriz${repetidas.length?` · ${repetidas.length} já estão na matriz e serão puladas (nada é trocado nem duplicado)`:''}.</p>
     ${faltam.length ? `<p class="pkg-meta">Colunas que a planilha não tem — ficam em branco pra você preencher depois: ${faltam.join(', ')}.</p>` : ''}
     ${exemplo ? `<div style="overflow-x:auto;"><table class="rank-table" style="font-size:12px;"><thead><tr><th>Serviço</th><th>Data</th><th>Restrição</th><th>Status</th></tr></thead><tbody>${exemplo}</tbody></table></div>${novas.length>5?`<p class="pkg-meta">…e mais ${novas.length-5}.</p>`:''}` : '<p class="empty-note">Não há nada novo pra acrescentar.</p>'}
@@ -5318,6 +5323,7 @@ function restricaoMostraPrevia(nomeArquivo, res, novas, repetidas){
       ${novas.length ? `<button class="btn btn-primary" id="gutImpOk">Acrescentar ${novas.length} restrição(ões)</button>` : ''}
     </div>`);
   document.getElementById('gutImpCancelar').onclick = closeModal;
+  document.getElementById('gutSoAbertas').onchange = e=> restricaoMostraPrevia(nomeArquivo, res, e.target.checked);
   const ok = document.getElementById('gutImpOk');
   if(ok) ok.onclick = async ()=>{
     ok.disabled = true; ok.textContent = 'Importando…';
