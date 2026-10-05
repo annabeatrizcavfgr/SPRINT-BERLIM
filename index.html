@@ -435,6 +435,7 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .ind-mes select{font-size:13px; text-transform:none; min-width:150px;}
 .ind-mes .ico{color:var(--text-muted);}
 .ind-pills{display:flex; gap:8px; flex-wrap:wrap; margin-left:auto;}
+details.card summary .ind-pills{text-transform:none; letter-spacing:0; font-family:var(--font-body); font-weight:400; color:var(--text);}
 .ind-pill{display:inline-flex; align-items:center; gap:7px; padding:6px 12px; border-radius:999px; background:var(--surface-2); font-size:13px;}
 .ind-pill i{width:8px; height:8px; border-radius:50%; display:inline-block;}
 .ind-grade{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px;}
@@ -454,7 +455,7 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .ind-bar-row{display:grid; grid-template-columns:minmax(90px,150px) 1fr 34px; align-items:center; gap:10px; padding:4px 0; font-size:13px;}
 .ind-bar-lbl{text-align:right; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .ind-bar-track{display:block; height:20px;}
-.ind-bar-fill{display:block; height:100%; border-radius:4px; background:var(--info);}
+.ind-bar-fill{display:block; height:100%; border-radius:4px; background:var(--accent);}
 .ind-bar-fill.vazio{background:var(--border);}
 .ind-bar-n{font-weight:800; font-family:var(--font-mono);}
 .restricao-table .rs-lbl{cursor:pointer; user-select:none;}
@@ -5519,10 +5520,12 @@ function restricaoMostraPrevia(nomeArquivo, res, soAbertas){
    - Os gráficos olham as restrições em aberto por padrão (o histórico de resolvidas escondia o que
      importa hoje); dá pra trocar por atrasadas, finalizadas ou todas. As bolinhas de contagem sempre
      mostram o quadro completo do período (atrasadas são um subconjunto das em aberto).
-   - Barras em azul de informação, não vermelho: vermelho em dado parece problema (feedback dela).
+   - Barras em vermelho FGR (ela pediu depois de ver — antes eu tinha deixado azul pra não parecer problema).
+   - O bloco é minimizável (<details>), como o Painel gerencial; as contagens ficam na linha do título.
    Sem o "Índice de Remoção de Restrições" (ela pediu pra não trazer).
 =================================================================== */
 let RESTRICAO_IND = {mes:'', escopo:'abertas'}; // reset em initDb
+let RESTRICAO_IND_OPEN = lsGet('jb_restricao_ind_open', true); // aberto/minimizado — preferência do navegador, como no Painel gerencial
 const RESTRICAO_MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const RESTRICAO_IND_ESCOPOS = [
   {v:'abertas', label:'Em aberto'}, {v:'atrasadas', label:'Atrasadas'}, {v:'finalizadas', label:'Finalizadas'}, {v:'todas', label:'Todas'},
@@ -5589,20 +5592,21 @@ function renderRestricaoIndicadores(){
   const d = restricaoIndicadores();
   const escopoRot = (RESTRICAO_IND_ESCOPOS.find(e=>e.v===RESTRICAO_IND.escopo)||{}).label.toLowerCase();
   const periodo = RESTRICAO_IND.mes ? restricaoMesRotulo(RESTRICAO_IND.mes) : 'todo o período';
-  box.innerHTML = `<div class="card">
-    <div class="ind-topo">
-      <div>
-        <h3 class="section-title" style="margin:0;">${ico('bars')} Indicadores da Matriz GUT</h3>
-        <div class="pkg-meta">Período: ${periodo} · pela data em que a restrição foi identificada</div>
-      </div>
-      <label class="ind-mes">${ico('calendar')} Mês
-        <select class="inline" id="indMes"><option value="">Todo o período</option>${d.meses.map(m=>`<option value="${m}" ${m===RESTRICAO_IND.mes?'selected':''}>${restricaoMesRotulo(m)}</option>`).join('')}</select>
-      </label>
-      <div class="ind-pills">
+  // minimizável, igual ao Painel gerencial: <details> com o estado aberto/fechado guardado no navegador; as
+  // contagens ficam na linha do título, então continuam visíveis com os indicadores minimizados
+  box.innerHTML = `<details class="card" id="restricaoIndDetails" ${RESTRICAO_IND_OPEN?'open':''}>
+    <summary>${ico('bars')} Indicadores da Matriz GUT <span class="chev">▸</span>
+      <span class="ind-pills">
         <span class="ind-pill"><i style="background:var(--good)"></i><strong>${d.finalizadas.length}</strong> concluídas</span>
         <span class="ind-pill"><i style="background:#D9A21B"></i><strong>${d.abertas.length}</strong> em aberto</span>
         <span class="ind-pill" title="Em aberto com o prazo (data de resolução) já vencido — fazem parte das ${d.abertas.length} em aberto"><i style="background:var(--critical)"></i><strong>${d.atrasadas.length}</strong> atrasadas</span>
-      </div>
+      </span>
+    </summary>
+    <div class="ind-topo" style="margin-top:12px;">
+      <div class="pkg-meta">Período: ${periodo} · pela data em que a restrição foi identificada</div>
+      <label class="ind-mes">${ico('calendar')} Mês
+        <select class="inline" id="indMes"><option value="">Todo o período</option>${d.meses.map(m=>`<option value="${m}" ${m===RESTRICAO_IND.mes?'selected':''}>${restricaoMesRotulo(m)}</option>`).join('')}</select>
+      </label>
     </div>
     <div class="ind-grade">
       ${restricaoIndTabela('Restrições em aberto com maior grau (G.U.T)', 'Da mais grave pra menos grave; empate: a mais antiga primeiro.', 'Classificação', d.grau,
@@ -5618,7 +5622,10 @@ function renderRestricaoIndicadores(){
       ${restricaoIndBarras('Quantidade de restrições por serviço', escopoRot, d.porServico)}
     </div>
     ${(d.semPrazo || d.semNota) ? `<p class="footer-note" style="padding:8px 0 0; text-align:left;">${d.semPrazo ? `${d.semPrazo} restrição(ões) em aberto estão sem data de resolução (prazo) e por isso não entram em "dias em atraso". ` : ''}${d.semNota ? `${d.semNota} em aberto estão sem nota G, U ou T e ficam fora do ranking de grau.` : ''}</p>` : ''}
-  </div>`;
+  </details>`;
+  document.getElementById('restricaoIndDetails').addEventListener('toggle', e=>{
+    RESTRICAO_IND_OPEN = e.target.open; lsSet('jb_restricao_ind_open', RESTRICAO_IND_OPEN);
+  });
   document.getElementById('indMes').onchange = e=>{ RESTRICAO_IND.mes = e.target.value; renderRestricaoIndicadores(); };
   box.querySelectorAll('[data-escopo]').forEach(b=>{ b.onclick = ()=>{ RESTRICAO_IND.escopo = b.dataset.escopo; renderRestricaoIndicadores(); }; });
 }
