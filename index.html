@@ -240,18 +240,39 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .rank-table tbody tr.pkg-row{cursor:pointer; transition:background .1s;}
 .rank-table tbody tr.pkg-row:hover{background:var(--surface-2);}
 .rank-table tbody tr:last-child td{border-bottom:none;}
-.rank-table tbody tr.restricao-nova{background:var(--accent-soft, var(--surface-2));}
-.rank-table tbody tr.restricao-nova td{padding-top:8px; padding-bottom:8px;}
-.rank-table tbody tr.restricao-nova input, .rank-table tbody tr.restricao-nova select{width:100%; box-sizing:border-box;}
 /* ---- Tabela de Restrições, estética do app de referência dela (2026-10-05): cabeçalho escuro,
    grade fina, pílulas coloridas pra status/nível/classificação, célula de prazo vencido em rosa com
    bolinha vermelha de dias de atraso. Seletores com ".panel-table.restricao-table" (duas classes)
    de propósito: as regras genéricas de ".panel-table" vêm DEPOIS no arquivo (nowrap, cabeçalho
    sticky com fundo claro) e ganhariam de um seletor mais fraco, mesmo com a mesma especificidade. */
 .restricao-wrap{border:1px solid var(--border); border-radius:10px;}
-.restricao-table tr.restricao-nova input, .restricao-table tr.restricao-nova select{font-size:11.5px; padding:3px 3px; min-width:0;}
-.restricao-table tr.restricao-nova input[type="date"]{width:104px;}
-.restricao-table tr.restricao-nova td.left input{min-width:120px;}
+/* edição na própria célula: o campo ocupa a célula sem mexer na coluna; menu flutuante pra listas */
+.restricao-table td.restricao-ed{cursor:text;}
+.restricao-table td.restricao-ed[data-campo="nivel"], .restricao-table td.restricao-ed[data-campo="status"],
+.restricao-table td.restricao-ed[data-campo="g"], .restricao-table td.restricao-ed[data-campo="u"],
+.restricao-table td.restricao-ed[data-campo="t"], .restricao-table td[data-draft-menu]{cursor:pointer;}
+.restricao-table td.restricao-ed:hover{box-shadow:inset 0 0 0 2px rgba(62,70,89,.35);}
+.restricao-table td.restricao-editing{box-shadow:inset 0 0 0 2px #3E4659; background:var(--surface);}
+.restricao-table td.restricao-editing, .restricao-table td.restricao-draft-cell{padding:4px;}
+.restricao-edit{
+  width:100%; min-width:0; box-sizing:border-box; font:inherit; font-size:12.5px; padding:5px 6px;
+  border:1px solid var(--border); border-radius:6px; background:#fff; color:#222; text-align:left; resize:none;
+}
+.restricao-edit:focus{outline:2px solid #3E4659; outline-offset:-1px;}
+.restricao-table tr.restricao-draft-row td{background:var(--accent-soft, var(--surface-2));}
+.restricao-table td.restricao-draft-acoes{padding:4px; white-space:nowrap; text-align:center;}
+.restricao-draft-acoes .btn{padding:3px 6px; margin:0 1px; min-width:0;}
+.restricao-vazio{font-size:11px; color:var(--text-muted); font-style:italic;}
+.restricao-menu{
+  position:fixed; z-index:9999; min-width:190px; max-height:60vh; overflow:auto; padding:4px;
+  background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.2);
+}
+.restricao-menu button{
+  display:block; width:100%; text-align:left; padding:7px 10px; border:none; border-radius:6px;
+  background:transparent; color:var(--text); font-size:13px; cursor:pointer;
+}
+.restricao-menu button:hover{background:var(--surface-2);}
+.restricao-menu button.ativo{font-weight:700; background:var(--accent-soft, var(--surface-2));}
 .panel-table.restricao-table{border-collapse:separate; border-spacing:0; font-size:13px;}
 .panel-table.restricao-table th, .panel-table.restricao-table td{white-space:normal; padding:8px 7px;}
 .panel-table.restricao-table thead th{
@@ -1857,7 +1878,7 @@ async function initDb(){
   PAINEL_HIDDEN_COLS = []; PAINEL_RESP_FILTRO = null; FOCO_PACOTE_IDX = null;
   PRESENTATION_MODE = false; CAUSAS_FILTRO_PACOTES = null; CAUSAS_FILTRO_PERIODOS = null;
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
-  RESTRICAO_SEARCH = ''; RESTRICAO_ADDING = false; RESTRICAO_EDITING_ID = null;
+  RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
   RESTRICAO_FILTROS = {}; RESTRICAO_FILTROS_OPEN = false;
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
@@ -4289,13 +4310,14 @@ function wireScreenTabs(){
    adiar isso tudo pra uma próxima etapa, se fizer falta).
 =================================================================== */
 let RESTRICAO_SEARCH = '';
-// linha nova fica direto na tabela (2026-10-01, pedido dela: "não quero que crie caixa pra criar
-// restrição, só linha nova mesmo") — nada de modal, nem pra CADASTRAR nem pra EDITAR (ela pediu os
-// dois separadamente: primeiro só pra criar, depois "nao quero abrir o formulario completo, só quero
-// clicar e poder mudar o texto" — editar vira a MESMA linha, virando um formulário inline no lugar).
-let RESTRICAO_ADDING = false;
-let RESTRICAO_EDITING_ID = null;
-let RESTRICAO_FILTROS = {};        // { colKey: valor } — filtro por coluna (2026-10-05)
+// Edição na própria célula (2026-10-05): "eu nao quero que na hora de editar ele perca a estética" —
+// o formulário-na-linha deixava a tabela feia (selects cortados, rolagem). Agora clicar numa célula
+// troca SÓ aquela célula por um campo (texto/data) ou abre um menu flutuante (nível, status, G/U/T);
+// Enter/clicar fora grava, Esc cancela. A linha NOVA é um rascunho com as mesmas células da tabela.
+let RESTRICAO_DRAFT = null;         // rascunho da restrição nova (null = nenhuma sendo criada)
+let RESTRICAO_DRAFT_FOCUS = false;
+let RESTRICAO_COLW = null;          // larguras das colunas congeladas enquanto o rascunho está aberto
+let RESTRICAO_FILTROS = {};        // { colKey: valor } — filtro por coluna
 let RESTRICAO_FILTROS_OPEN = false; // linha de filtros visível no cabeçalho (botão "Filtros")
 function restricaoEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function restricaoNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
@@ -4307,17 +4329,9 @@ const RESTRICAO_NIVEIS = [
   {v:'reuniao-diretoria', label:'Reunião de diretoria'},
 ];
 function restricaoNivelLabel(v){ const n = RESTRICAO_NIVEIS.find(x=>x.v===v); return n ? n.label : ''; }
-function restricaoNivelOptionsHtml(sel){
-  return '<option value="">—</option>' + RESTRICAO_NIVEIS.map(n=>`<option value="${n.v}" ${sel===n.v?'selected':''}>${n.label}</option>`).join('');
-}
 function restricaoStatusKey(s){ return (s==='resolvido' || s==='em_andamento') ? s : 'aberto'; }
 function restricaoStatusLabel(s){ return s==='resolvido' ? 'Resolvido' : s==='em_andamento' ? 'Em andamento' : 'Não iniciado'; }
 function restricaoStatusPill(s){ return s==='resolvido' ? 'restricao-pill-ok' : s==='em_andamento' ? 'restricao-pill-andamento' : 'restricao-pill-novo'; }
-function restricaoStatusOptionsHtml(sel){
-  return `<option value="aberto" ${sel==='em_andamento'||sel==='resolvido'?'':'selected'}>Não iniciado</option>
-    <option value="em_andamento" ${sel==='em_andamento'?'selected':''}>Em andamento</option>
-    <option value="resolvido" ${sel==='resolvido'?'selected':''}>Resolvido</option>`;
-}
 function restricaoParseDia(iso){
   if(!iso) return null;
   const d = new Date(iso+'T00:00:00');
@@ -4342,9 +4356,8 @@ function restricaoAtraso(r){
   if(!prazo) return 0;
   return Math.max(0, Math.round((restricaoHoje().getTime() - prazo.getTime())/86400000));
 }
-// legenda da matriz G.U.T (2026-10-01; texto exato da legenda REAL que o time dela usa na planilha
-// — ela mandou print dos comentários da Erika Sakai na planilha, com a redação oficial).
-// Única fonte de verdade: tanto os <select> de G/U/T quanto os tooltips das células usam este objeto.
+// legenda da matriz G.U.T (texto exato da legenda REAL que o time dela usa na planilha — print dos
+// comentários da Erika Sakai). Única fonte de verdade: menus de G/U/T e tooltips usam este objeto.
 const RESTRICAO_GUT_NIVEIS = {
   g: [
     {v:5, nome:'Extremamente grave'},
@@ -4373,13 +4386,6 @@ function restricaoGutNome(letter, v){
   const n = RESTRICAO_GUT_NIVEIS[letter].find(x=>x.v===Number(v));
   return n ? n.nome : '';
 }
-// select com a frase inteira de cada nível (não só o número 1-5): ao abrir a lista aparece o texto
-// completo; fechado, só o começo cabe na coluna estreita (a tabela mostra G/U/T como números, igual
-// ao app de referência dela, com o texto completo no tooltip).
-function restricaoGutSelectHtml(letter, id, selected){
-  const opts = RESTRICAO_GUT_NIVEIS[letter].map(n=>`<option value="${n.v}" ${String(selected)===String(n.v)?'selected':''}>${n.v} - ${n.nome}</option>`).join('');
-  return `<select id="${id}" title="${RESTRICAO_GUT_TITULO[letter]}" style="width:64px;"><option value="">—</option>${opts}</select>`;
-}
 // faixa da classificação: hi (≥64), md (≥27), lo (resto), none (sem G/U/T completos)
 function restricaoClsKey(c){ return c==null ? 'none' : c>=64 ? 'hi' : c>=27 ? 'md' : 'lo'; }
 const RESTRICAO_COLS = [
@@ -4401,6 +4407,9 @@ const RESTRICAO_COLS = [
   {k:'cls', label:'Classificação<br>(G×U×T)', t:'sel', val:r=>restricaoClsKey(restricaoCls(r)), opts:[
     {v:'hi',label:'≥ 64'},{v:'md',label:'27 a 63'},{v:'lo',label:'< 27'},{v:'none',label:'Sem classificação'}]},
 ];
+// como cada coluna é editada ao clicar na célula: texto, área (texto longo), data ou menu flutuante
+const RESTRICAO_TIPO = {nivel:'menu', servico:'text', data:'date', eng:'text', coordenador:'text',
+  restricao:'area', solucao:'area', dataResolucao:'date', status:'menu', g:'menu', u:'menu', t:'menu'};
 function restricaoNumMatch(val, expr){
   expr = String(expr).trim();
   if(/^(>=|<=|>|<|=)$/.test(expr)) return true;
@@ -4429,7 +4438,7 @@ function restricaoThHtml(col, travado){
   let ctl = '';
   if(RESTRICAO_FILTROS_OPEN){
     const cur = RESTRICAO_FILTROS[col.k] || '';
-    const dis = travado ? ' disabled title="Salve ou cancele a edição para filtrar"' : '';
+    const dis = travado ? ' disabled title="Salve ou cancele a nova restrição para filtrar"' : '';
     if(col.t==='sel'){
       ctl = `<select class="rf-input" id="rf_${col.k}" data-rfiltro="${col.k}"${dis}><option value="">Todos</option>${col.opts.map(o=>`<option value="${o.v}" ${cur===o.v?'selected':''}>${o.label}</option>`).join('')}</select>`;
     } else {
@@ -4438,45 +4447,141 @@ function restricaoThHtml(col, travado){
   }
   return `<th${col.title?` title="${col.title}"`:''}>${col.label}${ctl}</th>`;
 }
-// formulário inline, usado tanto pra CRIAR (r=null, prefixo "rn") quanto pra EDITAR uma restrição já
-// existente (r=o registro, prefixo "re") — mesma linha da tabela vira os campos editáveis, sem modal
-// nenhum nos dois casos. Mesma ordem de colunas da tabela.
-function restricaoLinhaFormHtml(r){
-  const pacoteOpts = LOOKUPS.pacotes.map(n=>`<option value="${restricaoEsc(n)}">`).join('');
-  const p = r ? 're' : 'rn';
-  const v = k => r && r[k]!=null ? restricaoEsc(r[k]) : '';
-  const item = r ? r.item : '—';
-  const dias = r ? (restricaoDias(r)!=null ? restricaoDias(r) : '—') : '—';
-  return `<tr class="restricao-nova" ${r?`data-editing-id="${r.id}"`:''}>
-    <td class="num-cell mono">${item}</td>
-    <td><select id="${p}Nivel">${restricaoNivelOptionsHtml(r&&r.nivel)}</select></td>
-    <td><input id="${p}Servico" list="${p}ServicoList" placeholder="Serviço/pacote" value="${v('servico')}"><datalist id="${p}ServicoList">${pacoteOpts}</datalist></td>
-    <td><input type="date" id="${p}Data" value="${v('data')}"></td>
-    <td class="num-cell mono">${dias}</td>
-    <td><input id="${p}Eng" placeholder="Responsável" value="${v('eng')}"></td>
-    <td><input id="${p}Coord" placeholder="Coordenador" value="${v('coordenador')}"></td>
-    <td class="left"><input id="${p}Restricao" placeholder="Descreva a restrição" style="width:100%;" value="${v('restricao')}"></td>
-    <td class="left"><input id="${p}Solucao" placeholder="Observação (opcional)" style="width:100%;" value="${v('solucao')}"></td>
-    <td><input type="date" id="${p}DataRes" value="${v('dataResolucao')}"></td>
-    <td><select id="${p}Status">${restricaoStatusOptionsHtml(r&&r.status)}</select></td>
-    <td>${restricaoGutSelectHtml('g',p+'G', r&&r.g)}</td>
-    <td>${restricaoGutSelectHtml('u',p+'U', r&&r.u)}</td>
-    <td>${restricaoGutSelectHtml('t',p+'T', r&&r.t)}</td>
+// conteúdo de exibição de uma célula editável (igual na linha normal e no rascunho)
+function restricaoCelulaInner(campo, r){
+  switch(campo){
+    case 'nivel': return restricaoNivelLabel(r.nivel) ? `<span class="restricao-nivel restricao-nivel-${r.nivel}">${restricaoNivelLabel(r.nivel)}</span>` : '—';
+    case 'data': return r.data ? fmtDate2(r.data) : '—';
+    case 'dataResolucao': {
+      const atraso = restricaoAtraso(r);
+      return (r.dataResolucao ? fmtDate2(r.dataResolucao) : '—') + (atraso ? `<span class="restricao-atraso-flag">${atraso}</span>` : '');
+    }
+    case 'status': return `<span class="restricao-pill ${restricaoStatusPill(r.status)}">${restricaoStatusLabel(r.status)}</span>`;
+    case 'g': case 'u': case 't': return r[campo]!=null ? String(r[campo]) : '—';
+    default: return restricaoEsc(r[campo]) || '—';
+  }
+}
+// opções do menu flutuante de cada coluna do tipo "menu"
+function restricaoMenuOpcoes(campo){
+  if(campo==='nivel') return [{v:null,label:'—'}].concat(RESTRICAO_NIVEIS.map(n=>({v:n.v,label:n.label})));
+  if(campo==='status') return [{v:'aberto',label:'Não iniciado'},{v:'em_andamento',label:'Em andamento'},{v:'resolvido',label:'Resolvido'}];
+  return [{v:null,label:'—'}].concat(RESTRICAO_GUT_NIVEIS[campo].map(n=>({v:n.v,label:`${n.v} - ${n.nome}`})));
+}
+function restricaoFechaMenu(){
+  const m = document.getElementById('restricaoMenu');
+  if(m) m.remove();
+  document.removeEventListener('mousedown', restricaoMenuFora, true);
+  document.removeEventListener('keydown', restricaoMenuTecla, true);
+  window.removeEventListener('scroll', restricaoFechaMenu, true);
+}
+function restricaoMenuFora(e){ if(!e.target.closest('#restricaoMenu')) restricaoFechaMenu(); }
+function restricaoMenuTecla(e){ if(e.key==='Escape'){ e.preventDefault(); restricaoFechaMenu(); } }
+function restricaoAbreMenu(td, campo, atual, aoEscolher){
+  restricaoFechaMenu();
+  const ops = restricaoMenuOpcoes(campo);
+  const m = document.createElement('div');
+  m.id = 'restricaoMenu'; m.className = 'restricao-menu';
+  m.innerHTML = ops.map((o,i)=>`<button type="button" data-i="${i}" class="${(o.v===atual || (o.v==null && atual==null))?'ativo':''}">${restricaoEsc(o.label)}</button>`).join('');
+  document.body.appendChild(m);
+  const rc = td.getBoundingClientRect();
+  const left = Math.max(8, Math.min(rc.left, window.innerWidth - m.offsetWidth - 8));
+  const abaixo = rc.bottom + 4 + m.offsetHeight <= window.innerHeight;
+  m.style.left = left + 'px';
+  m.style.top = (abaixo ? rc.bottom + 4 : Math.max(8, rc.top - 4 - m.offsetHeight)) + 'px';
+  m.querySelectorAll('button').forEach(b=>{
+    b.onclick = ()=>{ const o = ops[Number(b.dataset.i)]; restricaoFechaMenu(); aoEscolher(o.v); };
+  });
+  document.addEventListener('mousedown', restricaoMenuFora, true);
+  document.addEventListener('keydown', restricaoMenuTecla, true);
+  window.addEventListener('scroll', restricaoFechaMenu, true);
+}
+async function restricaoGrava(id, patch){
+  await updateRestricao(id, patch);
+  renderRestricoes();
+}
+// clicou numa célula de uma restrição existente: troca SÓ ela por um campo (ou abre o menu)
+function restricaoEditaCelula(td){
+  if(MY_ROLE!=='planejador' || td.querySelector('.restricao-edit')) return;
+  const id = td.closest('tr').dataset.id;
+  const campo = td.dataset.campo, tipo = RESTRICAO_TIPO[campo];
+  const r = RESTRICOES.find(x=>x.id===id);
+  if(!r) return;
+  if(tipo==='menu'){
+    const atual = (campo==='status') ? restricaoStatusKey(r.status) : (r[campo]==null ? null : r[campo]);
+    restricaoAbreMenu(td, campo, atual, v=>{ if(v!==atual) restricaoGrava(id, {[campo]: v}); });
+    return;
+  }
+  const antes = r[campo]==null ? '' : String(r[campo]);
+  const rc = td.getBoundingClientRect();
+  td.style.width = td.style.minWidth = td.style.maxWidth = rc.width + 'px'; // coluna não se mexe
+  td.style.height = rc.height + 'px';
+  const el = document.createElement(tipo==='area' ? 'textarea' : 'input');
+  if(tipo==='date') el.type = 'date';
+  el.className = 'restricao-edit';
+  el.value = antes;
+  if(tipo==='area') el.style.height = Math.max(rc.height - 14, 34) + 'px';
+  if(campo==='servico') el.setAttribute('list', 'restricaoServicoList');
+  td.classList.add('restricao-editing');
+  td.textContent = '';
+  td.appendChild(el);
+  el.focus();
+  if(tipo!=='date') el.select();
+  let feito = false;
+  const fim = salvar=>{
+    if(feito) return; feito = true;
+    const novo = el.value.trim();
+    if(!salvar || novo===antes.trim()){ renderRestricoes(); return; }
+    if(campo==='restricao' && !novo){ toast('A restrição não pode ficar vazia.', 'warn'); renderRestricoes(); return; }
+    restricaoGrava(id, {[campo]: (tipo==='date' ? (novo||null) : novo)});
+  };
+  el.addEventListener('keydown', e=>{
+    if(e.key==='Enter' && !(tipo==='area' && e.shiftKey)){ e.preventDefault(); fim(true); }
+    else if(e.key==='Escape'){ e.preventDefault(); fim(false); }
+  });
+  if(tipo==='date') el.addEventListener('change', ()=>{ if(el.value) fim(true); });
+  el.addEventListener('blur', ()=>fim(true));
+}
+function restricaoRascunhoLinhaHtml(){
+  const d = RESTRICAO_DRAFT;
+  const c = restricaoCls(d);
+  const inp = (campo, ph, tipo) => {
+    const v = restricaoEsc(d[campo]);
+    const list = campo==='servico' ? ' list="restricaoServicoList"' : '';
+    if(tipo==='area') return `<td class="left restricao-draft-cell"><textarea class="restricao-edit" data-draft="${campo}" rows="3" placeholder="${ph}">${v}</textarea></td>`;
+    return `<td class="restricao-draft-cell"><input class="restricao-edit" ${tipo==='date'?'type="date" ':''}data-draft="${campo}" placeholder="${ph}" value="${v}"${list}></td>`;
+  };
+  const menu = (campo, cls) => `<td class="restricao-ed ${cls||''}" data-draft-menu="${campo}" title="Clique para escolher">${d[campo]!=null || campo==='status' ? restricaoCelulaInner(campo, d) : (campo==='nivel' ? '<span class="restricao-vazio">escolher</span>' : '—')}</td>`;
+  return `<tr class="restricao-draft-row">
     <td class="num-cell mono">—</td>
-    <td style="white-space:nowrap;">
-      <button class="btn btn-sm btn-primary" id="${p}Salvar">Salvar</button>
-      <button class="btn btn-sm" id="${p}Cancelar">✕</button>
-    </td>
+    ${menu('nivel')}
+    ${inp('servico','Serviço')}
+    ${inp('data','','date')}
+    <td class="num-cell mono">—</td>
+    ${inp('eng','Responsável')}
+    ${inp('coordenador','Coordenador')}
+    ${inp('restricao','Descreva a restrição','area')}
+    ${inp('solucao','Observação','area')}
+    ${inp('dataResolucao','','date')}
+    ${menu('status')}
+    ${menu('g','restricao-gut-num')}${menu('u','restricao-gut-num')}${menu('t','restricao-gut-num')}
+    <td>${c!=null?`<span class="restricao-cls restricao-cls-${restricaoClsKey(c)}">${c}</span>`:'—'}</td>
+    <td class="restricao-draft-acoes"><button class="btn btn-sm btn-primary" id="rnSalvar" title="Salvar" aria-label="Salvar restrição">✓</button><button class="btn btn-sm" id="rnCancelar" title="Cancelar" aria-label="Cancelar">✕</button></td>
   </tr>`;
 }
+function restricaoRascunhoNovo(){
+  return {nivel:null, servico:'', data:'', eng:'', coordenador:'', restricao:'', solucao:'', dataResolucao:'', status:'aberto', g:null, u:null, t:null};
+}
 function renderRestricoes(){
+  restricaoFechaMenu();
   const nq = restricaoNorm(RESTRICAO_SEARCH.trim());
   const list = RESTRICOES
     .map((r,i)=>({...r, item:i+1}))
     .filter(r=> restricaoPassaBusca(r, nq) && restricaoPassaFiltros(r));
   const nFiltros = Object.keys(RESTRICAO_FILTROS).filter(k=>RESTRICAO_FILTROS[k]!=='').length;
-  const travado = !!(RESTRICAO_ADDING || RESTRICAO_EDITING_ID); // filtrar redesenha a tabela e perderia o que foi digitado no formulário
+  const travado = !!RESTRICAO_DRAFT; // filtrar redesenha a tabela e perderia o que foi digitado na linha nova
   const ehPlan = MY_ROLE==='planejador';
+  const pacoteOpts = (LOOKUPS.pacotes||[]).map(n=>`<option value="${restricaoEsc(n)}">`).join('');
+  const colgroup = RESTRICAO_COLW ? `<colgroup>${RESTRICAO_COLW.map(w=>`<col style="width:${w}px">`).join('')}</colgroup>` : '';
   const screen = document.getElementById('screen');
   screen.innerHTML = `
   <div class="screen-enter">
@@ -4485,46 +4590,50 @@ function renderRestricoes(){
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
         <h3 class="section-title" style="margin:0;">🚧 Restrições</h3>
         <div class="restricao-busca">
-          <input class="search-input" id="restricaoSearch" placeholder="Buscar por restrição, serviço, responsável ou status..." value="${restricaoEsc(RESTRICAO_SEARCH)}"${travado?' disabled title="Salve ou cancele a edição para buscar"':''}>
+          <input class="search-input" id="restricaoSearch" placeholder="Buscar por restrição, serviço, responsável ou status..." value="${restricaoEsc(RESTRICAO_SEARCH)}"${travado?' disabled title="Salve ou cancele a nova restrição para buscar"':''}>
         </div>
         <button class="btn" id="btnRestricaoFiltros">⚲ Filtros${nFiltros?` (${nFiltros})`:''}</button>
         ${ehPlan && !travado ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
       <div class="panel-table-wrap restricao-wrap">
-      <table class="rank-table panel-table restricao-table">
+      <table class="rank-table panel-table restricao-table"${RESTRICAO_COLW?' style="table-layout:fixed;"':''}>
+        ${colgroup}
         <thead><tr>
           ${RESTRICAO_COLS.map(c=>restricaoThHtml(c, travado)).join('')}
-          ${ehPlan ? `<th>${RESTRICAO_FILTROS_OPEN && nFiltros ? '<button type="button" class="btn btn-sm" id="btnLimparFiltros" style="margin:0;">Limpar</button>' : ''}</th>` : ''}
+          ${ehPlan ? `<th style="min-width:58px;">${RESTRICAO_FILTROS_OPEN && nFiltros ? '<button type="button" class="btn btn-sm" id="btnLimparFiltros" style="margin:0;">Limpar</button>' : ''}</th>` : ''}
         </tr></thead>
         <tbody>
-          ${ehPlan && RESTRICAO_ADDING ? restricaoLinhaFormHtml(null) : ''}
+          ${ehPlan && RESTRICAO_DRAFT ? restricaoRascunhoLinhaHtml() : ''}
           ${list.length ? list.map(r=>{
-            if(ehPlan && r.id===RESTRICAO_EDITING_ID) return restricaoLinhaFormHtml(r);
             const c = restricaoCls(r), cKey = restricaoClsKey(c);
             const dias = restricaoDias(r);
             const atraso = restricaoAtraso(r);
-            const gut = (letter, val) => `<td class="restricao-gut-num" title="${RESTRICAO_GUT_TITULO[letter]}${val!=null?': '+val+' - '+restricaoGutNome(letter,val):''}">${val!=null?val:'—'}</td>`;
-            return `<tr class="${ehPlan?'pkg-row':''}" data-id="${r.id}" style="${ehPlan?'cursor:pointer;':''}">
+            const ed = ehPlan ? ' restricao-ed' : '';
+            const dica = ehPlan ? ' title="Clique para editar"' : '';
+            const tdE = (campo, cls, extra) => `<td class="${cls||''}${ed}" data-campo="${campo}"${extra||dica}>${restricaoCelulaInner(campo, r)}</td>`;
+            const gut = letter => tdE(letter, 'restricao-gut-num', ` title="${RESTRICAO_GUT_TITULO[letter]}${r[letter]!=null?': '+r[letter]+' - '+restricaoGutNome(letter,r[letter]):''}${ehPlan?' (clique para editar)':''}"`);
+            return `<tr data-id="${r.id}">
               <td class="num-cell mono">${r.item}</td>
-              <td>${restricaoNivelLabel(r.nivel)?`<span class="restricao-nivel restricao-nivel-${r.nivel}">${restricaoNivelLabel(r.nivel)}</span>`:'—'}</td>
-              <td class="restricao-servico-cell" title="${restricaoEsc(r.servico)}">${restricaoEsc(r.servico)||'—'}</td>
-              <td class="num-cell mono">${r.data?fmtDate2(r.data):'—'}</td>
+              ${tdE('nivel')}
+              ${tdE('servico', 'restricao-servico-cell', ` title="${restricaoEsc(r.servico)}"`)}
+              ${tdE('data', 'num-cell mono')}
               <td class="num-cell mono">${dias!=null?dias:'—'}</td>
-              <td>${restricaoEsc(r.eng)||'—'}</td>
-              <td>${restricaoEsc(r.coordenador)||'—'}</td>
-              <td class="left">${restricaoEsc(r.restricao)||'—'}</td>
-              <td class="left">${restricaoEsc(r.solucao)||'—'}</td>
-              <td class="num-cell mono${atraso?' restricao-atraso-cell':''}"${atraso?` title="${atraso} dia${atraso>1?'s':''} em atraso"`:''}>${r.dataResolucao?fmtDate2(r.dataResolucao):'—'}${atraso?`<span class="restricao-atraso-flag">${atraso}</span>`:''}</td>
-              <td><span class="restricao-pill ${restricaoStatusPill(r.status)}">${restricaoStatusLabel(r.status)}</span></td>
-              ${gut('g', r.g)}${gut('u', r.u)}${gut('t', r.t)}
+              ${tdE('eng')}
+              ${tdE('coordenador')}
+              ${tdE('restricao', 'left')}
+              ${tdE('solucao', 'left')}
+              ${tdE('dataResolucao', 'num-cell mono'+(atraso?' restricao-atraso-cell':''), atraso?` title="${atraso} dia${atraso>1?'s':''} em atraso"`:dica)}
+              ${tdE('status')}
+              ${gut('g')}${gut('u')}${gut('t')}
               <td>${c!=null?`<span class="restricao-cls restricao-cls-${cKey}">${c}</span>`:'—'}</td>
-              ${ehPlan ? `<td style="white-space:nowrap;"><button type="button" class="btn btn-sm" data-edit-restricao="${r.id}" title="Editar" aria-label="Editar restrição">✎</button> <button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
+              ${ehPlan ? `<td style="white-space:nowrap;"><button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
             </tr>`;
-          }).join('') : (RESTRICAO_ADDING ? '' : `<tr><td colspan="${RESTRICAO_COLS.length + (ehPlan?1:0)}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com esses filtros.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
+          }).join('') : (RESTRICAO_DRAFT ? '' : `<tr><td colspan="${RESTRICAO_COLS.length + (ehPlan?1:0)}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com esses filtros.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
         </tbody>
       </table>
+      <datalist id="restricaoServicoList">${pacoteOpts}</datalist>
       </div>
-      <div class="restricao-rodape"><span>Mostrando ${list.length} de ${RESTRICOES.length} registros</span></div>
+      <div class="restricao-rodape"><span>Mostrando ${list.length} de ${RESTRICOES.length} registros</span>${ehPlan?'<span>Clique em uma célula para editar</span>':''}</div>
     </div>
   </div>`;
   wireScreenTabs();
@@ -4540,11 +4649,24 @@ function restricaoRedesenhaMantendoFoco(el){
     try{ novo.setSelectionRange(pos, pos); }catch(e){}
   }
 }
+async function restricaoSalvaRascunho(){
+  const d = RESTRICAO_DRAFT;
+  const restricao = (d.restricao||'').trim();
+  if(!restricao){ toast('Descreva a restrição.', 'warn'); return; }
+  await saveRestricao({
+    nivel: d.nivel || null, servico: (d.servico||'').trim(), data: d.data || null,
+    eng: (d.eng||'').trim(), coordenador: (d.coordenador||'').trim(), restricao,
+    solucao: (d.solucao||'').trim(), dataResolucao: d.dataResolucao || null, status: d.status || 'aberto',
+    g: d.g, u: d.u, t: d.t,
+  });
+  RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
+  toast('Restrição cadastrada.');
+  renderRestricoes();
+}
 function wireRestricoes(){
   const search = document.getElementById('restricaoSearch');
   search.addEventListener('input', e=>{ RESTRICAO_SEARCH = e.target.value; restricaoRedesenhaMantendoFoco(search); });
-  const btnFiltros = document.getElementById('btnRestricaoFiltros');
-  btnFiltros.onclick = ()=>{ RESTRICAO_FILTROS_OPEN = !RESTRICAO_FILTROS_OPEN; renderRestricoes(); };
+  document.getElementById('btnRestricaoFiltros').onclick = ()=>{ RESTRICAO_FILTROS_OPEN = !RESTRICAO_FILTROS_OPEN; renderRestricoes(); };
   document.querySelectorAll('[data-rfiltro]').forEach(el=>{
     const evt = el.tagName==='SELECT' ? 'change' : 'input';
     el.addEventListener(evt, ()=>{
@@ -4555,85 +4677,61 @@ function wireRestricoes(){
   });
   const btnLimpar = document.getElementById('btnLimparFiltros');
   if(btnLimpar) btnLimpar.onclick = ()=>{ RESTRICAO_FILTROS = {}; renderRestricoes(); };
+  if(MY_ROLE!=='planejador') return;
   const btnNova = document.getElementById('btnNovaRestricao');
-  if(btnNova) btnNova.onclick = ()=>{ RESTRICAO_ADDING = true; renderRestricoes(); };
-  wireRestricaoForm('rn', null);
-  if(RESTRICAO_EDITING_ID) wireRestricaoForm('re', RESTRICOES.find(x=>x.id===RESTRICAO_EDITING_ID));
-  if(MY_ROLE==='planejador'){
-    document.querySelectorAll('tr[data-id]').forEach(tr=>{
-      tr.addEventListener('click', e=>{
-        if(e.target.closest('[data-del-restricao]') || e.target.closest('[data-edit-restricao]')) return;
-        RESTRICAO_ADDING = false;
-        RESTRICAO_EDITING_ID = tr.dataset.id;
-        renderRestricoes();
-      });
+  if(btnNova) btnNova.onclick = ()=>{
+    // congela a largura das colunas atuais: a linha nova tem campos e não pode deformar a tabela
+    const larguras = [...document.querySelectorAll('.restricao-table thead th')].map(t=>t.getBoundingClientRect().width);
+    const soma = larguras.reduce((a,b)=>a+b, 0);
+    const disp = document.querySelector('.restricao-wrap').clientWidth;
+    const k = soma > disp ? disp/soma : 1; // nunca passa da largura disponível (senão aparece barra de rolagem)
+    RESTRICAO_COLW = larguras.map(w=>Math.floor(w*k*10)/10);
+    RESTRICAO_DRAFT = restricaoRascunhoNovo();
+    RESTRICAO_DRAFT_FOCUS = true;
+    renderRestricoes();
+  };
+  // linha nova (rascunho)
+  document.querySelectorAll('[data-draft]').forEach(el=>{
+    el.addEventListener('input', ()=>{ RESTRICAO_DRAFT[el.dataset.draft] = el.value; });
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter' && el.tagName==='INPUT'){ e.preventDefault(); restricaoSalvaRascunho(); } });
+  });
+  document.querySelectorAll('[data-draft-menu]').forEach(td=>{
+    td.addEventListener('click', ()=>{
+      const campo = td.dataset.draftMenu;
+      restricaoAbreMenu(td, campo, RESTRICAO_DRAFT[campo], v=>{ RESTRICAO_DRAFT[campo] = v; renderRestricoes(); });
     });
-    document.querySelectorAll('[data-edit-restricao]').forEach(b=>{
-      b.onclick = e=>{
-        e.stopPropagation();
-        RESTRICAO_ADDING = false;
-        RESTRICAO_EDITING_ID = b.dataset.editRestricao;
-        renderRestricoes();
-      };
-    });
-    document.querySelectorAll('[data-del-restricao]').forEach(b=>{
-      b.onclick = async e=>{
-        e.stopPropagation();
-        const id = b.dataset.delRestricao;
-        const ok = await confirmModal({
-          title: 'Excluir esta restrição?',
-          body: 'Isso remove permanentemente o registro.',
-          confirmLabel: 'Excluir', danger: true
-        });
-        if(!ok) return;
-        const success = await deleteRestricao(id);
-        if(success){ toast('Restrição excluída.'); renderRestricoes(); }
-      };
-    });
+  });
+  const rnSalvar = document.getElementById('rnSalvar');
+  if(rnSalvar) rnSalvar.onclick = restricaoSalvaRascunho;
+  const rnCancelar = document.getElementById('rnCancelar');
+  if(rnCancelar) rnCancelar.onclick = ()=>{ RESTRICAO_DRAFT = null; RESTRICAO_COLW = null; renderRestricoes(); };
+  if(RESTRICAO_DRAFT && RESTRICAO_DRAFT_FOCUS){
+    RESTRICAO_DRAFT_FOCUS = false;
+    const f = document.querySelector('[data-draft="servico"]');
+    if(f) f.focus();
   }
-}
-// liga os botões Salvar/✕ de UM formulário inline (`prefix` casa com os ids gerados por
-// `restricaoLinhaFormHtml`) — reusado tanto pra criar (`existing=null`) quanto pra editar
-// (`existing`=o registro original, só pra saber o `id`).
-function wireRestricaoForm(prefix, existing){
-  const btnSalvar = document.getElementById(prefix+'Salvar');
-  if(!btnSalvar) return;
-  const servicoInput = document.getElementById(prefix+'Servico');
-  if(servicoInput) servicoInput.focus();
-  document.getElementById(prefix+'Cancelar').onclick = ()=>{
-    if(existing) RESTRICAO_EDITING_ID = null; else RESTRICAO_ADDING = false;
-    renderRestricoes();
-  };
-  btnSalvar.onclick = async ()=>{
-    const toInt = v=>{ const n=parseInt(v,10); return isNaN(n) ? null : n; };
-    const val = s => document.getElementById(prefix+s).value;
-    const restricao = val('Restricao').trim();
-    if(!restricao){ toast('Descreva a restrição.', 'warn'); return; }
-    const entry = {
-      nivel: val('Nivel') || null,
-      servico: val('Servico').trim(),
-      data: val('Data') || null,
-      eng: val('Eng').trim(),
-      coordenador: val('Coord').trim(),
-      restricao,
-      solucao: val('Solucao').trim(),
-      dataResolucao: val('DataRes') || null,
-      status: val('Status'),
-      g: toInt(val('G')),
-      u: toInt(val('U')),
-      t: toInt(val('T')),
+  // restrições existentes: clicar na célula edita só ela
+  document.querySelectorAll('.restricao-table tbody tr[data-id]').forEach(tr=>{
+    tr.addEventListener('click', e=>{
+      if(e.target.closest('[data-del-restricao]')) return;
+      const td = e.target.closest('td.restricao-ed');
+      if(td && tr.contains(td)) restricaoEditaCelula(td);
+    });
+  });
+  document.querySelectorAll('[data-del-restricao]').forEach(b=>{
+    b.onclick = async e=>{
+      e.stopPropagation();
+      const id = b.dataset.delRestricao;
+      const ok = await confirmModal({
+        title: 'Excluir esta restrição?',
+        body: 'Isso remove permanentemente o registro.',
+        confirmLabel: 'Excluir', danger: true
+      });
+      if(!ok) return;
+      const success = await deleteRestricao(id);
+      if(success){ toast('Restrição excluída.'); renderRestricoes(); }
     };
-    if(existing){
-      await updateRestricao(existing.id, entry);
-      RESTRICAO_EDITING_ID = null;
-      toast('Restrição atualizada.');
-    } else {
-      await saveRestricao(entry);
-      RESTRICAO_ADDING = false;
-      toast('Restrição cadastrada.');
-    }
-    renderRestricoes();
-  };
+  });
 }
 function pctFmt(v){ return v==null ? '—' : Math.round(v*100)+'%'; }
 // IDP em formato numérico (0.99, 1.05), não percentual (99%, 105%) — pedido dela em 2026-09-09.
