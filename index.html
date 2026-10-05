@@ -696,11 +696,14 @@ const CAUSAS_LISTA = [
 let db = null;                     // claude db namespace, or null
 // login/permissão (só existe nessa hospedagem própria — dentro do Artifact da Claude, AUTH fica null
 // pra sempre e o app funciona como antes, sem tela de login nenhuma). AUTH = cliente do Supabase Auth
-// (criado em initAuth); CURRENT_USER = {id,email} de quem logou; MY_ROLE = 'planejador' (edita tudo) ou
-// 'visualizador' (só lê) — ver initAuth/checkWritable/api/role.js.
+// (criado em initAuth); CURRENT_USER = {id,email} de quem logou; MY_ROLE = 'planejador' (edita tudo),
+// 'coordenador' (autonomia total só na tela de Restrições/matriz G.U.T, o resto só lê) ou 'visualizador'
+// (lê tudo; nas Restrições edita só a observação e cria novas sempre no nível check-in) — ver
+// initAuth/checkWritable/api/db.js (a regra que vale de verdade é a do servidor).
 let AUTH = null;
 let CURRENT_USER = null;
 let MY_ROLE = 'visualizador';
+const ROLE_LABEL = {planejador:'Planejador', coordenador:'Coordenador', visualizador:'Visualizador'};
 let MY_STATUS = null; // 'pending' | 'approved' — controla a tela de espera de aprovacao
 // multi-obra (2026-09-17) — cada obra tem seus dados, seu time e seus planejadores totalmente
 // independentes uns dos outros. CURRENT_OBRA_ID/CURRENT_OBRA_NOME identificam qual obra está em
@@ -1182,10 +1185,23 @@ async function authHeaders(extra){
 // só "planejador" pode gravar — "visualizador" consegue ler tudo, mas toda tentativa de escrever pára
 // aqui (com um aviso), sem nem chegar a chamar a API (o servidor também recusa, por garantia — ver
 // api/db.js — mas travar aqui já evita a chamada de rede à toa e dá um aviso mais rápido).
-function checkWritable(){
+// Exceção (2026-10-05): as RESTRIÇÕES (obras/<id>/restricoes) aceitam escrita de coordenador (tudo) e de
+// visualizador (criar + observação; o servidor é quem limita o resto) — por isso recebe o caminho.
+function checkWritable(path, action){
   if(MY_ROLE === 'planejador') return true;
-  toast('Você está como visualizador — peça pra um "planejador" fazer essa alteração.', 'warn');
+  if(typeof path === 'string' && /^obras\/[^/]+\/restricoes(\/|$)/.test(path)){
+    if(MY_ROLE === 'coordenador') return true;
+    if(MY_ROLE === 'visualizador' && action !== 'delete') return true;
+  }
+  toast('Você está como '+(ROLE_LABEL[MY_ROLE]||MY_ROLE).toLowerCase()+' — peça pra um "planejador" fazer essa alteração.', 'warn');
   return false;
+}
+// o servidor recusa com 403/400/500 e um {error}; sem isso o app achava que tinha gravado
+async function dbRespostaOk(r){
+  if(r.ok) return;
+  let msg = '';
+  try{ const j = await r.json(); msg = j && j.error ? j.error : ''; }catch(e){}
+  throw new Error(msg || ('erro '+r.status));
 }
 // prefixa qualquer caminho com a obra em vista agora (multi-obra, 2026-09-17) — único lugar que
 // precisa saber disso; docRef/collectionRef (remoto e local, abaixo) chamam isso antes de mais
@@ -1207,12 +1223,12 @@ function createRemoteDb(){
         return { exists: !!j.exists, data: ()=>j.data };
       },
       async set(value){
-        if(!checkWritable()) return;
-        await fetch(API, {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({path, action:'set', data:value})});
+        if(!checkWritable(path, 'set')) return;
+        await dbRespostaOk(await fetch(API, {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({path, action:'set', data:value})}));
       },
       async delete(){
-        if(!checkWritable()) return;
-        await fetch(API, {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({path, action:'delete'})});
+        if(!checkWritable(path, 'delete')) return;
+        await dbRespostaOk(await fetch(API, {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({path, action:'delete'})}));
       },
     };
   }
@@ -1221,8 +1237,9 @@ function createRemoteDb(){
     return {
       doc(id){ return docRef(path+'/'+id); },
       async add(value){
-        if(!checkWritable()) return { id: null };
+        if(!checkWritable(path, 'add')) return { id: null };
         const r = await fetch(API, {method:'POST', headers: await authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({path, action:'add', data:value})});
+        await dbRespostaOk(r.clone());
         const j = await r.json();
         return { id: j.id };
       },
@@ -1365,7 +1382,7 @@ function updateAuthUi(){
   const btnSair = document.getElementById('btnSair');
   if(btnSair) btnSair.style.display = CURRENT_USER ? '' : 'none';
   const whoami = document.getElementById('whoamiSlot');
-  if(whoami) whoami.textContent = CURRENT_USER ? (CURRENT_USER.email+' - '+(isPlan?'planejador':'visualizador')) : '';
+  if(whoami) whoami.textContent = CURRENT_USER ? (CURRENT_USER.email+' - '+(ROLE_LABEL[MY_ROLE]||MY_ROLE).toLowerCase()) : '';
   // nome da obra em vista agora (multi-obra, 2026-09-17) — troca o título da aba e o nome no topbar,
   // que antes eram sempre "Jardins Berlim" fixo. Feito aqui (chamado sempre que o papel/status é
   // relido, ou seja, toda vez que a obra muda) em vez de espalhar em vários lugares.
@@ -1577,7 +1594,7 @@ function obraScreenHtml(minhas, todas, msg, closable){
         ${minhas.map(o=>`
           <div class="list-row quadra-row" data-entrar="${o.id}" data-nome="${o.nome.replace(/"/g,'&quot;')}">
             <div>${o.nome} ${o.status!=='approved'?'<span class="badge badge-warn">pendente</span>':''}</div>
-            <span class="pkg-meta">${o.status==='approved' ? (o.role==='planejador'?'Planejador':'Visualizador') : 'aguardando aprovação'}</span>
+            <span class="pkg-meta">${o.status==='approved' ? (ROLE_LABEL[o.role]||'Visualizador') : 'aguardando aprovação'}</span>
           </div>`).join('')}
       </div>
     ` : '<p class="empty-note">Você ainda não participa de nenhuma obra.</p>'}
@@ -1759,7 +1776,9 @@ async function openUsersModal(){
     openModal(`
       <h3>Usuários — ${CURRENT_OBRA_NOME}</h3>
       <p>Quem pode entrar nessa obra e o que cada um pode fazer nela. "Planejador" edita tudo;
-      "visualizador" só olha. Papéis e acessos são só desta obra — não afetam nenhuma outra.</p>
+      "coordenador" tem autonomia total na matriz G.U.T (Restrições) e só olha o resto;
+      "visualizador" só olha, mas na matriz G.U.T pode editar a observação e criar restrições novas
+      (sempre no nível check-in). Papéis e acessos são só desta obra — não afetam nenhuma outra.</p>
       ${pendentes.length ? `
         <div class="form-field"><label>Aguardando aprovação</label></div>
         <div style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px; margin-bottom:14px;">
@@ -1781,6 +1800,7 @@ async function openUsersModal(){
             <div style="display:flex; gap:6px; align-items:center;">
               <select class="inline" data-userrole="${u.email}" ${u.email===(CURRENT_USER && CURRENT_USER.email)?'disabled':''}>
                 <option value="visualizador" ${u.role==='visualizador'?'selected':''}>Visualizador</option>
+                <option value="coordenador" ${u.role==='coordenador'?'selected':''}>Coordenador</option>
                 <option value="planejador" ${u.role==='planejador'?'selected':''}>Planejador</option>
               </select>
               ${rowActionsHtml(u)}
@@ -1796,6 +1816,7 @@ async function openUsersModal(){
           </datalist>
           <select class="inline" id="addUserRole">
             <option value="visualizador">Visualizador</option>
+            <option value="coordenador">Coordenador</option>
             <option value="planejador">Planejador</option>
           </select>
           <button class="btn btn-primary" id="btnAddUser">Adicionar</button>
@@ -1821,7 +1842,7 @@ async function openUsersModal(){
         try{
           await patchUser(email, {role});
           const u = users.find(x=>x.email===email); if(u) u.role = role;
-          toast('Papel de '+email+' atualizado pra '+role+'.');
+          toast('Papel de '+email+' atualizado pra '+(ROLE_LABEL[role]||role).toLowerCase()+'.');
         }catch(e){ toast('Falha ao atualizar: '+(e && e.message?e.message:e), 'err'); paint(); }
       };
     });
@@ -1853,7 +1874,7 @@ async function openUsersModal(){
       try{
         await patchUser(email, {role, status:'approved'});
         await carregarUsers();
-        toast(email+' adicionado(a) como '+role+'.');
+        toast(email+' adicionado(a) como '+(ROLE_LABEL[role]||role).toLowerCase()+'.');
         paint();
       }catch(e){ toast('Falha ao adicionar: '+(e && e.message?e.message:e), 'err'); }
     };
@@ -2323,10 +2344,20 @@ async function loadRestricoes(){
     RESTRICOES = snap.docs.map(d=>({id:d.id, ...d.data()}));
   }catch(e){ console.error('loadRestricoes failed', e); }
 }
+// devolve true se gravou (o servidor pode recusar: visualizador sempre cria no nível check-in, por exemplo
+// — nesse caso o item que volta já vem com o nível que o servidor forçou)
 async function saveRestricao(entry){
-  if(!db){ RESTRICOES.push({id:'local'+Date.now(), ...entry}); toast('Registrado localmente (sem armazenamento persistente nesta visualização).','warn'); return; }
-  const ref = await db.collection('restricoes').add(entry);
-  RESTRICOES.push({id:ref.id, ...entry});
+  if(!db){ RESTRICOES.push({id:'local'+Date.now(), ...entry}); toast('Registrado localmente (sem armazenamento persistente nesta visualização).','warn'); return true; }
+  try{
+    const ref = await db.collection('restricoes').add(entry);
+    if(!ref || !ref.id) return false; // checkWritable já avisou
+    RESTRICOES.push({id:ref.id, ...entry, ...(MY_ROLE==='visualizador' ? {nivel:'check-in'} : {})});
+    return true;
+  }catch(e){
+    console.error('saveRestricao failed', e);
+    toast('Falha ao cadastrar: '+(e && e.message ? e.message : e), 'err');
+    return false;
+  }
 }
 async function updateRestricao(id, patch){
   const r = RESTRICOES.find(x=>x.id===id);
@@ -2334,7 +2365,11 @@ async function updateRestricao(id, patch){
   Object.assign(r, patch);
   if(!db) return;
   try{ await db.doc('restricoes/'+id).set(r); }
-  catch(e){ console.error('updateRestricao failed', e); toast('Falha ao salvar: '+(e && e.message ? e.message : e), 'err'); }
+  catch(e){
+    console.error('updateRestricao failed', e);
+    toast('Falha ao salvar: '+(e && e.message ? e.message : e), 'err');
+    await loadRestricoes(); // o servidor recusou: volta pro que está gravado de verdade
+  }
 }
 async function deleteRestricao(id){
   if(!db){ RESTRICOES = RESTRICOES.filter(r=>r.id!==id); return true; }
@@ -4430,6 +4465,11 @@ const RESTRICAO_COLS = [
 ];
 RESTRICAO_COLS.forEach(c=>{ if(c.raw) c.fv = r=>restricaoNorm(String(c.raw(r)==null?'':c.raw(r)).trim()); });
 // como cada coluna é editada ao clicar na célula: texto, área (texto longo), data ou menu flutuante
+// PERMISSÕES (2026-10-05): planejador e coordenador têm autonomia total nas restrições (criar, editar
+// qualquer campo, mudar o nível, excluir); visualizador só edita a observação ("solucao") de qualquer
+// restrição e cria novas, sempre no nível check-in. O servidor (api/db.js) aplica a mesma regra.
+function restricaoAutonomia(){ return MY_ROLE==='planejador' || MY_ROLE==='coordenador'; }
+function restricaoPodeEditar(campo){ return restricaoAutonomia() || campo==='solucao'; }
 const RESTRICAO_TIPO = {nivel:'menu', servico:'text', data:'date', eng:'text', coordenador:'text',
   restricao:'area', solucao:'area', dataResolucao:'date', status:'menu', g:'menu', u:'menu', t:'menu'};
 // `ignora` = coluna cujo próprio filtro não conta (usado pra montar a lista de valores dela)
@@ -4603,7 +4643,7 @@ async function restricaoGrava(id, patch){
 }
 // clicou numa célula de uma restrição existente: troca SÓ ela por um campo (ou abre o menu)
 function restricaoEditaCelula(td){
-  if(MY_ROLE!=='planejador' || td.querySelector('.restricao-edit')) return;
+  if(!restricaoPodeEditar(td.dataset.campo) || td.querySelector('.restricao-edit')) return;
   const id = td.closest('tr').dataset.id;
   const campo = td.dataset.campo, tipo = RESTRICAO_TIPO[campo];
   const r = RESTRICOES.find(x=>x.id===id);
@@ -4652,7 +4692,10 @@ function restricaoRascunhoLinhaHtml(){
     if(tipo==='area') return `<td class="left restricao-draft-cell"><textarea class="restricao-edit" data-draft="${campo}" rows="3" placeholder="${ph}">${v}</textarea></td>`;
     return `<td class="restricao-draft-cell"><input class="restricao-edit" ${tipo==='date'?'type="date" ':''}data-draft="${campo}" placeholder="${ph}" value="${v}"${list}></td>`;
   };
-  const menu = (campo, cls) => `<td class="restricao-ed ${cls||''}" data-draft-menu="${campo}" title="Clique para escolher">${d[campo]!=null || campo==='status' ? restricaoCelulaInner(campo, d) : (campo==='nivel' ? '<span class="restricao-vazio">escolher</span>' : '—')}</td>`;
+  const conteudoMenu = campo => d[campo]!=null || campo==='status' ? restricaoCelulaInner(campo, d) : (campo==='nivel' ? '<span class="restricao-vazio">escolher</span>' : '—');
+  const menu = (campo, cls) => (campo==='nivel' && !restricaoAutonomia())
+    ? `<td title="Restrições novas entram sempre no nível Check-in — só coordenador e planejador mudam o nível">${conteudoMenu(campo)}</td>`
+    : `<td class="restricao-ed ${cls||''}" data-draft-menu="${campo}" title="Clique para escolher">${conteudoMenu(campo)}</td>`;
   return `<tr class="restricao-draft-row">
     <td class="num-cell mono">—</td>
     ${menu('nivel')}
@@ -4671,7 +4714,7 @@ function restricaoRascunhoLinhaHtml(){
   </tr>`;
 }
 function restricaoRascunhoNovo(){
-  return {nivel:null, servico:'', data:'', eng:'', coordenador:'', restricao:'', solucao:'', dataResolucao:'', status:'aberto', g:null, u:null, t:null};
+  return {nivel: restricaoAutonomia() ? null : 'check-in', servico:'', data:'', eng:'', coordenador:'', restricao:'', solucao:'', dataResolucao:'', status:'aberto', g:null, u:null, t:null};
 }
 function renderRestricoes(){
   restricaoFechaMenu();
@@ -4681,7 +4724,7 @@ function renderRestricoes(){
     .map((r,i)=>({...r, item:i+1}))
     .filter(r=> restricaoPassaBusca(r, nq) && restricaoPassaFiltros(r));
   const nFiltros = Object.keys(RESTRICAO_FILTROS).filter(k=>RESTRICAO_FILTROS[k]!=='').length;
-  const ehPlan = MY_ROLE==='planejador';
+  const auto = restricaoAutonomia(); // planejador/coordenador: autonomia total; visualizador: observação + criar
   const pacoteOpts = (LOOKUPS.pacotes||[]).map(n=>`<option value="${restricaoEsc(n)}">`).join('');
   const colgroup = RESTRICAO_COLW ? `<colgroup>${RESTRICAO_COLW.map(w=>`<col style="width:${w}px">`).join('')}</colgroup>` : '';
   const screen = document.getElementById('screen');
@@ -4695,25 +4738,24 @@ function renderRestricoes(){
           <input class="search-input" id="restricaoSearch" placeholder="Buscar por restrição, serviço, responsável ou status..." value="${restricaoEsc(RESTRICAO_SEARCH)}">
         </div>
         ${nFiltros ? `<button class="btn" id="btnLimparFiltros" title="Remover os filtros de todas as colunas">✕ Limpar filtros (${nFiltros})</button>` : ''}
-        ${ehPlan && !RESTRICAO_DRAFT ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
+        ${!RESTRICAO_DRAFT ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
       <div class="panel-table-wrap restricao-wrap">
       <table class="rank-table panel-table restricao-table"${RESTRICAO_COLW?' style="table-layout:fixed;"':''}>
         ${colgroup}
         <thead><tr>
           ${RESTRICAO_COLS.map(c=>restricaoThHtml(c)).join('')}
-          ${ehPlan ? '<th style="min-width:58px;"></th>' : ''}
+          <th style="min-width:58px;"></th>
         </tr></thead>
         <tbody>
-          ${ehPlan && RESTRICAO_DRAFT ? restricaoRascunhoLinhaHtml() : ''}
+          ${RESTRICAO_DRAFT ? restricaoRascunhoLinhaHtml() : ''}
           ${list.length ? list.map(r=>{
             const c = restricaoCls(r), cKey = restricaoClsKey(c);
             const dias = restricaoDias(r);
             const atraso = restricaoAtraso(r);
-            const ed = ehPlan ? ' restricao-ed' : '';
-            const dica = ehPlan ? ' title="Clique para editar"' : '';
-            const tdE = (campo, cls, extra) => `<td class="${cls||''}${ed}" data-campo="${campo}"${extra||dica}>${restricaoCelulaInner(campo, r)}</td>`;
-            const gut = letter => tdE(letter, 'restricao-gut-num', ` title="${RESTRICAO_GUT_TITULO[letter]}${r[letter]!=null?': '+r[letter]+' - '+restricaoGutNome(letter,r[letter]):''}${ehPlan?' (clique para editar)':''}"`);
+            const dicaDe = campo => restricaoPodeEditar(campo) ? ' title="Clique para editar"' : '';
+            const tdE = (campo, cls, extra) => `<td class="${cls||''}${restricaoPodeEditar(campo)?' restricao-ed':''}" data-campo="${campo}"${extra||dicaDe(campo)}>${restricaoCelulaInner(campo, r)}</td>`;
+            const gut = letter => tdE(letter, 'restricao-gut-num', ` title="${RESTRICAO_GUT_TITULO[letter]}${r[letter]!=null?': '+r[letter]+' - '+restricaoGutNome(letter,r[letter]):''}${restricaoPodeEditar(letter)?' (clique para editar)':''}"`);
             return `<tr data-id="${r.id}">
               <td class="num-cell mono">${r.item}</td>
               ${tdE('nivel')}
@@ -4724,18 +4766,18 @@ function renderRestricoes(){
               ${tdE('coordenador')}
               ${tdE('restricao', 'left')}
               ${tdE('solucao', 'left')}
-              ${tdE('dataResolucao', 'num-cell mono'+(atraso?' restricao-atraso-cell':''), atraso?` title="${atraso} dia${atraso>1?'s':''} em atraso"`:dica)}
+              ${tdE('dataResolucao', 'num-cell mono'+(atraso?' restricao-atraso-cell':''), atraso?` title="${atraso} dia${atraso>1?'s':''} em atraso"`:dicaDe('dataResolucao'))}
               ${tdE('status')}
               ${gut('g')}${gut('u')}${gut('t')}
               <td>${c!=null?`<span class="restricao-cls restricao-cls-${cKey}">${c}</span>`:'—'}</td>
-              ${ehPlan ? `<td style="white-space:nowrap;"><button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button></td>` : ''}
+              <td style="white-space:nowrap;">${auto ? `<button type="button" class="badge-del" data-del-restricao="${r.id}" title="Excluir" aria-label="Excluir restrição">✕</button>` : ''}</td>
             </tr>`;
-          }).join('') : (RESTRICAO_DRAFT ? '' : `<tr><td colspan="${RESTRICAO_COLS.length + (ehPlan?1:0)}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com esses filtros.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
+          }).join('') : (RESTRICAO_DRAFT ? '' : `<tr><td colspan="${RESTRICAO_COLS.length + 1}"><p class="empty-note">${RESTRICOES.length?'Nenhuma restrição encontrada com esses filtros.':'Nenhuma restrição cadastrada ainda.'}</p></td></tr>`)}
         </tbody>
       </table>
       <datalist id="restricaoServicoList">${pacoteOpts}</datalist>
       </div>
-      <div class="restricao-rodape"><span>Mostrando ${list.length} de ${RESTRICOES.length} registros</span>${ehPlan?'<span>Clique em uma célula para editar</span>':''}</div>
+      <div class="restricao-rodape"><span>Mostrando ${list.length} de ${RESTRICOES.length} registros</span><span>${auto ? 'Clique em uma célula para editar' : 'Clique na observação para editar · novas restrições entram no nível Check-in'}</span></div>
     </div>
   </div>`;
   wireScreenTabs();
@@ -4755,12 +4797,14 @@ async function restricaoSalvaRascunho(){
   const d = RESTRICAO_DRAFT;
   const restricao = (d.restricao||'').trim();
   if(!restricao){ toast('Descreva a restrição.', 'warn'); return; }
-  await saveRestricao({
-    nivel: d.nivel || null, servico: (d.servico||'').trim(), data: d.data || null,
+  const ok = await saveRestricao({
+    nivel: restricaoAutonomia() ? (d.nivel || null) : 'check-in', // visualizador: sempre check-in
+    servico: (d.servico||'').trim(), data: d.data || null,
     eng: (d.eng||'').trim(), coordenador: (d.coordenador||'').trim(), restricao,
     solucao: (d.solucao||'').trim(), dataResolucao: d.dataResolucao || null, status: d.status || 'aberto',
     g: d.g, u: d.u, t: d.t,
   });
+  if(!ok) return; // não gravou: mantém a linha nova aberta com o que foi digitado
   RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
   toast('Restrição cadastrada.');
   renderRestricoes();
@@ -4776,7 +4820,6 @@ function wireRestricoes(){
   });
   const btnLimpar = document.getElementById('btnLimparFiltros');
   if(btnLimpar) btnLimpar.onclick = ()=>{ RESTRICAO_FILTROS = {}; renderRestricoes(); };
-  if(MY_ROLE!=='planejador') return;
   const btnNova = document.getElementById('btnNovaRestricao');
   if(btnNova) btnNova.onclick = ()=>{
     // congela a largura das colunas atuais: a linha nova tem campos e não pode deformar a tabela

@@ -14,6 +14,19 @@
 // valido pras outras (senao, excluir alguem de uma obra a expulsaria de todas as outras tambem).
 import { supabaseAdmin, getAuthedUser, getUserRoleStatus } from '../lib/supabaseAuth.js';
 
+// PAPEIS (2026-10-05): planejador, coordenador (autonomia total so na matriz G.U.T) e visualizador (ver
+// tudo, editar a observacao das restricoes e criar restricoes no nivel check-in). A coluna `role` da
+// tabela user_roles tem um CHECK que, na criacao, so aceitava planejador/visualizador — precisa ser
+// atualizado UMA vez no SQL Editor do Supabase pra aceitar "coordenador" (ver lib/supabaseAuth.js).
+// Enquanto nao rodar, o banco recusa o papel novo; devolve uma mensagem que explica isso em vez de um
+// erro de banco incompreensivel.
+function erroDePapel(res, error) {
+  if (/user_roles_role_check|check constraint/i.test(String((error && error.message) || ''))) {
+    return res.status(400).json({ error: 'o banco ainda nao aceita o papel "coordenador" — rode o SQL de atualizacao da tabela user_roles no Supabase (ver lib/supabaseAuth.js)' });
+  }
+  throw error;
+}
+
 export default async function handler(req, res) {
   try {
     const admin = supabaseAdmin();
@@ -51,7 +64,7 @@ export default async function handler(req, res) {
       const mine = await getUserRoleStatus(admin, user.id, user.email, obraId);
       if (mine.role !== 'planejador') return res.status(403).json({ error: 'sem permissao' });
       if (!email) return res.status(400).json({ error: 'e-mail obrigatorio' });
-      if (role && !['planejador', 'visualizador'].includes(role)) return res.status(400).json({ error: 'role invalido' });
+      if (role && !['planejador', 'coordenador', 'visualizador'].includes(role)) return res.status(400).json({ error: 'role invalido' });
       if (status && !['pending', 'approved'].includes(status)) return res.status(400).json({ error: 'status invalido' });
       const { data: existing } = await admin.from('user_roles').select('user_id').eq('email', email).eq('obra_id', obraId).maybeSingle();
       if (existing) {
@@ -59,7 +72,7 @@ export default async function handler(req, res) {
         if (role) patch.role = role;
         if (status) patch.status = status;
         const { error } = await admin.from('user_roles').update(patch).eq('email', email).eq('obra_id', obraId);
-        if (error) throw error;
+        if (error) return erroDePapel(res, error);
         return res.status(200).json({ ok: true });
       }
       // ainda nao tem linha NESSA obra - se ja logou em QUALQUER outra obra, o user_id dela ja
@@ -70,7 +83,7 @@ export default async function handler(req, res) {
         user_id: qualquerLinha.user_id, obra_id: obraId, email,
         role: role || 'visualizador', status: status || 'approved',
       });
-      if (insertError) throw insertError;
+      if (insertError) return erroDePapel(res, insertError);
       return res.status(200).json({ ok: true, created: true });
     }
 
