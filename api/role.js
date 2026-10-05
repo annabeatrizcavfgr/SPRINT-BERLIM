@@ -42,7 +42,14 @@ export default async function handler(req, res) {
         if (mine.role !== 'planejador') return res.status(403).json({ error: 'sem permissao' });
         const { data, error } = await admin.from('user_roles').select('email, role, status, user_id').eq('obra_id', obraId).order('email');
         if (error) throw error;
-        return res.status(200).json({ users: data || [], myEmail: user.email });
+        // nome completo digitado em "Criar conta" (guardado no cadastro do Supabase Auth). Só enfeita a
+        // tela Usuários — se der qualquer problema pra buscar, a lista sai igual, só sem os nomes.
+        const nomes = {};
+        try {
+          const { data: lista } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+          ((lista && lista.users) || []).forEach((u) => { nomes[u.id] = (u.user_metadata && u.user_metadata.full_name) || ''; });
+        } catch (e) { console.error('api/role: nomes indisponiveis', e); }
+        return res.status(200).json({ users: (data || []).map((u) => ({ ...u, nome: nomes[u.user_id] || '' })), myEmail: user.email });
       }
       // "diretorio" de todo mundo que ja logou em QUALQUER obra (so e-mail, sem papel/status) -
       // alimenta as sugestoes de "adicionar alguem que ja usa o sistema" (2026-09-17, pedido dela:

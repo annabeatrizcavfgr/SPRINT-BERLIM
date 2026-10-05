@@ -5,6 +5,11 @@
      não fica no Google Fonts, então não há <link> pra carregar; --font-* já cai direto no stack nativo -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<!-- só a tela de entrada usa (Montserrat no título, Inter nos campos — igual ao app "Gestão e Controle de
+     Obra" dela); se a rede bloquear o Google Fonts, cai nas fontes de sistema sem quebrar nada -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@800&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 /* =============================================================================
    TOKENS — "caderneta de campo": papel de prancha técnica, tinta blueprint,
@@ -240,6 +245,54 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .rank-table tbody tr.pkg-row{cursor:pointer; transition:background .1s;}
 .rank-table tbody tr.pkg-row:hover{background:var(--surface-2);}
 .rank-table tbody tr:last-child td{border-bottom:none;}
+/* ---- Tela de entrada (login / criar conta / esqueci a senha), desenho do app de referência dela ---- */
+.auth-screen{
+  position:fixed; inset:0; z-index:10050; display:flex; align-items:center; justify-content:center;
+  padding:20px; overflow-y:auto; background:#2a2f28;
+}
+.auth-screen::before{
+  content:""; position:fixed; inset:-20px; background:url("/login-bg.jpg") center/cover no-repeat;
+  filter:blur(5px) brightness(.72);
+}
+.auth-screen .au-card{
+  position:relative; width:min(450px,100%); box-sizing:border-box; background:#fff; border-radius:16px;
+  box-shadow:0 24px 60px rgba(0,0,0,.4); padding:30px 28px 26px; color:#1F2433;
+  font-family:Inter,"Segoe UI",Arial,sans-serif; margin:auto;
+}
+.auth-screen .au-logo{display:block; height:58px; margin:0 auto 12px;}
+.auth-screen .au-card h1{
+  margin:0; text-align:center; font-family:Montserrat,"Arial Black",Arial,sans-serif; font-weight:800;
+  font-size:19px; letter-spacing:.6px; text-transform:uppercase; color:#1F2433;
+}
+.auth-screen .au-sub{margin:4px 0 22px; text-align:center; font-size:13.5px; color:#7A8394;}
+.auth-screen .au-card h2{margin:0 0 14px; font-family:inherit; font-size:18px; font-weight:700; color:#1F2433;}
+.auth-screen .au-f{display:block; margin-bottom:12px;}
+.auth-screen .au-f span{display:block; font-size:13px; font-weight:600; color:#4A5263; margin-bottom:6px;}
+.auth-screen .au-f input{
+  width:100%; box-sizing:border-box; height:44px; border:1px solid #D5DAE2; border-radius:8px; background:#F8F9FB;
+  padding:0 13px; font:inherit; font-size:15px; color:#1F2433;
+}
+.auth-screen .au-f input:focus{outline:0; border-color:#9F1814; box-shadow:0 0 0 3px rgba(159,24,20,.15); background:#fff;}
+.auth-screen .au-chk{display:flex; align-items:center; gap:8px; font-size:13.5px; color:#4A5263; margin:4px 0 14px; cursor:pointer;}
+.auth-screen .au-chk input{width:16px; height:16px; accent-color:#9F1814; margin:0;}
+.auth-screen .au-btn{
+  display:block; width:100%; height:46px; border:0; border-radius:8px; background:#9F1814; color:#fff;
+  font:inherit; font-size:15.5px; font-weight:700; cursor:pointer; margin-top:4px;
+}
+.auth-screen .au-btn:hover{background:#86130F;}
+.auth-screen .au-btn:disabled{opacity:.6; cursor:wait;}
+.auth-screen .au-link{
+  display:block; width:100%; margin-top:14px; padding:0; border:0; background:none; font:inherit; font-size:14px;
+  font-weight:700; cursor:pointer; text-align:center;
+}
+.auth-screen .au-link.blue{color:#34539A;}
+.auth-screen .au-link.red{color:#9F1814;}
+.auth-screen .au-link:hover{text-decoration:underline;}
+.auth-screen .au-msg{display:none; margin:0 0 14px; padding:10px 12px; border-radius:8px; font-size:13.5px; line-height:1.4;}
+.auth-screen .au-msg.show{display:block;}
+.auth-screen .au-msg.err{background:#FDECEC; color:#9B1C14;}
+.auth-screen .au-msg.ok{background:#E7F5EA; color:#1F6B3A;}
+.auth-screen .au-note{font-size:12.5px; color:#8A93A3; text-align:center; margin:14px 0 0; line-height:1.45;}
 /* ---- Tabela de Restrições, estética do app de referência dela (2026-10-05): cabeçalho escuro,
    grade fina, pílulas coloridas pra status/nível/classificação, célula de prazo vencido em rosa com
    bolinha vermelha de dias de atraso. Seletores com ".panel-table.restricao-table" (duas classes)
@@ -252,6 +305,11 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .restricao-table td.restricao-ed[data-campo="g"], .restricao-table td.restricao-ed[data-campo="u"],
 .restricao-table td.restricao-ed[data-campo="t"], .restricao-table td[data-draft-menu]{cursor:pointer;}
 .restricao-table td.restricao-ed:hover{box-shadow:inset 0 0 0 2px rgba(62,70,89,.35);}
+.restricao-table td.restricao-lock{cursor:not-allowed;}
+.restricao-aviso{
+  margin:0 0 12px; padding:9px 12px; border-radius:8px; font-size:13px; line-height:1.45;
+  background:var(--accent-soft, var(--surface-2)); border:1px solid var(--border); color:var(--text);
+}
 .restricao-table td.restricao-editing{box-shadow:inset 0 0 0 2px #3E4659; background:var(--surface);}
 .restricao-table td.restricao-editing, .restricao-table td.restricao-draft-cell{padding:4px;}
 .restricao-edit{
@@ -1344,6 +1402,7 @@ function traduzErroAuth(error){
   if(/User already registered/i.test(m)) return 'Já existe uma conta com esse e-mail - tente Entrar.';
   if(/Password should be at least/i.test(m)) return 'A senha precisa ter pelo menos 6 caracteres.';
   if(/Unable to validate email address/i.test(m)) return 'E-mail inválido.';
+  if(/Email not confirmed/i.test(m)) return 'Esse e-mail ainda não foi confirmado - abra o e-mail que enviamos e clique no link.';
   if(/security purposes.*after/i.test(m)) return 'Você já pediu isso há pouco - espere um minuto e tente de novo.';
   if(/Auth session missing/i.test(m)) return 'Esse link de redefinição já expirou ou já foi usado - peça um novo em "Esqueci minha senha".';
   return m;
@@ -1394,86 +1453,176 @@ function updateAuthUi(){
   const btnTrocarObra = document.getElementById('btnTrocarObra');
   if(btnTrocarObra) btnTrocarObra.style.display = CURRENT_USER ? '' : 'none';
 }
-function loginScreenHtml(msg){
-  return `
-    <h3>Entrar</h3>
-    <p>Quem nunca usou pode criar uma conta - depois de entrar, você escolhe (ou pede acesso a)
-    a obra que quer acompanhar.</p>
-    ${msg ? `<p style="color:var(--critical); font-weight:600;">${msg}</p>` : ''}
-    <div class="form-field"><label>E-mail</label><input type="email" id="loginEmail" autocomplete="email"></div>
-    <div class="form-field"><label>Senha</label><input type="password" id="loginSenha" autocomplete="current-password"></div>
-    <div class="form-field"><label>Confirmar senha (só pra criar conta)</label><input type="password" id="loginSenhaConfirma" autocomplete="new-password"></div>
-    <p style="text-align:right; margin:-6px 0 0 0;"><a href="#" id="linkEsqueciSenha" style="font-size:12.5px;">Esqueci minha senha</a></p>
-    <div class="modal-actions">
-      <button class="btn" id="btnCriarConta">Criar conta</button>
-      <button class="btn btn-primary" id="btnEntrar">Entrar</button>
-    </div>
-  `;
+/* Tela de entrada (2026-10-05, pedido dela: "queria também que a tela de início mudasse pra esse
+   design, pode fazer igual") — mesmo desenho do app "Gestão e Controle de Obra" dela: cartão branco
+   sobre a foto desfocada, logo da FGR, "Entrar" / "Criar conta" / "Esqueci minha senha". Tela cheia
+   própria (não é mais o modal): #authScreen. Imagens em /fgr-logo.png e /login-bg.jpg (arquivos na raiz
+   do projeto, servidos pela Vercel como o /frankfurt-map.svg). */
+const AUTH_EMAIL_KEY = 'jb_last_email';
+const AUTH_KEEP_KEY = 'jb_keep';
+function authEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function authEmailOk(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+function authBusy(btn, txt){ btn.disabled = true; btn.dataset.t = btn.textContent; btn.textContent = txt; }
+function authFree(btn){ btn.disabled = false; if(btn.dataset.t) btn.textContent = btn.dataset.t; }
+function authMsg(texto, tipo){
+  const el = document.getElementById('auMsg');
+  if(!el) return;
+  el.textContent = texto || '';
+  el.className = 'au-msg' + (texto ? ' show '+(tipo||'err') : '');
+}
+function authOnEnter(campos, fn){
+  campos.forEach(c=>c.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); fn(); } }));
+}
+function authCardOpen(corpoHtml, msg, tipo){
+  closeModal();
+  let el = document.getElementById('authScreen');
+  if(!el){ el = document.createElement('div'); el.id = 'authScreen'; el.className = 'auth-screen'; document.body.appendChild(el); }
+  el.innerHTML = `<div class="au-card" role="dialog" aria-modal="true">
+    <img class="au-logo" src="/fgr-logo.png" alt="FGR Incorporações">
+    <h1>Gestão e Controle de Obra</h1>
+    <p class="au-sub">FGR Incorporações · Acompanhamento de obras</p>
+    <p class="au-msg" id="auMsg"></p>
+    <div>${corpoHtml}</div>
+  </div>`;
+  document.body.style.overflow = 'hidden';
+  authMsg(msg, tipo);
+  return el;
+}
+function authCardClose(){
+  const el = document.getElementById('authScreen');
+  if(el) el.remove();
+  document.body.style.overflow = '';
+}
+function authUltimoEmail(){ try{ return localStorage.getItem(AUTH_EMAIL_KEY) || ''; }catch(e){ return ''; } }
+// "Manter conectado neste computador": marcado = sessão fica guardada (padrão do Supabase). Desmarcado =
+// vale até fechar o navegador: marca um cookie de sessão (some quando o navegador fecha, mas vale em
+// todas as abas) e, na próxima abertura sem esse cookie, initAuth() encerra a sessão local.
+function authGuardaPreferencia(email, manter){
+  try{
+    localStorage.setItem(AUTH_EMAIL_KEY, email);
+    localStorage.setItem(AUTH_KEEP_KEY, manter ? '1' : '0');
+  }catch(e){}
+  if(!manter) document.cookie = 'jb_alive=1; path=/; SameSite=Lax';
+}
+function showLoginScreen(msg, tipo){
+  authCardOpen(`
+    <h2>Entrar</h2>
+    <label class="au-f"><span>E-mail corporativo</span><input type="email" id="loginEmail" placeholder="nome@fgr.com.br" autocomplete="username" value="${authEsc(authUltimoEmail())}"></label>
+    <label class="au-f"><span>Senha</span><input type="password" id="loginSenha" placeholder="Sua senha" autocomplete="current-password"></label>
+    <label class="au-chk"><input type="checkbox" id="loginKeep" checked>Manter conectado neste computador</label>
+    <button class="au-btn" id="btnEntrar">Entrar</button>
+    <button class="au-link blue" id="linkEsqueciSenha" type="button">Esqueci minha senha</button>
+    <button class="au-link red" id="linkCriarConta" type="button">Ainda não tenho acesso — criar conta</button>
+  `, msg, tipo);
+  const emailEl = document.getElementById('loginEmail'), senhaEl = document.getElementById('loginSenha');
+  setTimeout(()=>(emailEl.value ? senhaEl : emailEl).focus(), 50);
+  const entrar = async ()=>{
+    const email = emailEl.value.trim().toLowerCase(), senha = senhaEl.value;
+    if(!authEmailOk(email)){ authMsg('Digite o seu e-mail corporativo.'); emailEl.focus(); return; }
+    if(!senha){ authMsg('Digite sua senha.'); senhaEl.focus(); return; }
+    const btn = document.getElementById('btnEntrar');
+    authBusy(btn, 'Entrando…'); authMsg('');
+    const { error } = await AUTH.auth.signInWithPassword({ email, password: senha });
+    if(error){ authFree(btn); authMsg(traduzErroAuth(error)); senhaEl.select(); return; }
+    authGuardaPreferencia(email, document.getElementById('loginKeep').checked);
+    authCardClose();
+    await afterLogin();
+  };
+  document.getElementById('btnEntrar').onclick = entrar;
+  authOnEnter([emailEl, senhaEl], entrar);
+  document.getElementById('linkEsqueciSenha').onclick = ()=> showForgotPasswordScreen(emailEl.value.trim());
+  document.getElementById('linkCriarConta').onclick = ()=> showSignupScreen();
+}
+function showSignupScreen(){
+  authCardOpen(`
+    <h2>Criar conta</h2>
+    <label class="au-f"><span>Nome completo</span><input id="signNome" placeholder="Seu nome e sobrenome" autocomplete="name"></label>
+    <label class="au-f"><span>E-mail corporativo</span><input type="email" id="signEmail" placeholder="nome@fgr.com.br" autocomplete="email" value="${authEsc(authUltimoEmail())}"></label>
+    <label class="au-f"><span>Crie uma senha</span><input type="password" id="signSenha" placeholder="Mínimo de 6 caracteres" autocomplete="new-password"></label>
+    <label class="au-f"><span>Confirmar senha</span><input type="password" id="signSenha2" placeholder="Repita a senha" autocomplete="new-password"></label>
+    <button class="au-btn" id="btnCriarConta">Criar conta e solicitar acesso</button>
+    <button class="au-link blue" id="linkJaTenhoConta" type="button">Já tenho conta — entrar</button>
+    <p class="au-note">Depois de criar a conta, o administrador precisa aprovar o seu acesso.</p>
+  `);
+  const nomeEl = document.getElementById('signNome'), emailEl = document.getElementById('signEmail');
+  const s1 = document.getElementById('signSenha'), s2 = document.getElementById('signSenha2');
+  setTimeout(()=>nomeEl.focus(), 50);
+  const criar = async ()=>{
+    const nome = nomeEl.value.replace(/\s+/g, ' ').trim();
+    const email = emailEl.value.trim().toLowerCase();
+    if(nome.length < 3){ authMsg('Digite seu nome completo.'); nomeEl.focus(); return; }
+    if(!authEmailOk(email)){ authMsg('Digite o seu e-mail corporativo.'); emailEl.focus(); return; }
+    if(s1.value.length < 6){ authMsg('A senha precisa ter pelo menos 6 caracteres.'); s1.focus(); return; }
+    if(s1.value !== s2.value){ authMsg('As senhas não conferem.'); s2.focus(); return; }
+    const btn = document.getElementById('btnCriarConta');
+    authBusy(btn, 'Criando conta…'); authMsg('');
+    const { data, error } = await AUTH.auth.signUp({ email, password: s1.value, options: { data: { full_name: nome } } });
+    if(error){ authFree(btn); authMsg(traduzErroAuth(error)); return; }
+    authGuardaPreferencia(email, true);
+    if(!data.session){
+      showLoginScreen('Conta criada! Se o projeto pedir confirmação de e-mail, confirme antes de entrar - depois disso, aguarde a aprovação de um planejador.', 'ok');
+      return;
+    }
+    authCardClose();
+    await afterLogin();
+  };
+  document.getElementById('btnCriarConta').onclick = criar;
+  authOnEnter([nomeEl, emailEl, s1, s2], criar);
+  document.getElementById('linkJaTenhoConta').onclick = ()=> showLoginScreen();
 }
 // "esqueci minha senha" (2026-09-17, pedido dela). resetPasswordForEmail nunca revela se aquele
-// e-mail tem conta ou não (segurança do próprio Supabase) - por isso a tela de confirmação também
-// fala "se tiver uma conta", sem confirmar nada. redirectTo manda a pessoa de volta pra essa mesma
-// URL, mas com "#...&type=recovery" no fragmento - initAuth() detecta isso e abre
-// showResetPasswordScreen() direto, sem passar pelo login normal (ver initAuth).
-function forgotPasswordScreenHtml(msg){
-  return `
-    <h3>Recuperar senha</h3>
-    <p>Digite seu e-mail - se tiver uma conta, mandamos um link pra você escolher uma senha nova.</p>
-    ${msg ? `<p style="color:var(--critical); font-weight:600;">${msg}</p>` : ''}
-    <div class="form-field"><label>E-mail</label><input type="email" id="forgotEmail" autocomplete="email"></div>
-    <div class="modal-actions">
-      <button class="btn" id="btnVoltarLogin">Voltar</button>
-      <button class="btn btn-primary" id="btnEnviarRecuperacao">Enviar link</button>
-    </div>
-  `;
-}
-function forgotPasswordEnviadoHtml(email){
-  return `
-    <h3>Verifique seu e-mail</h3>
-    <p>Se <strong>${email}</strong> tiver uma conta, um link pra redefinir a senha foi enviado pra
-    lá. Abra o e-mail e clique no link pra escolher uma senha nova.</p>
-    <div class="modal-actions"><button class="btn btn-primary" id="btnVoltarLogin2">Voltar para o login</button></div>
-  `;
-}
-function showForgotPasswordScreen(msg){
-  openModal(forgotPasswordScreenHtml(msg));
-  document.getElementById('btnVoltarLogin').onclick = ()=> showLoginScreen();
-  document.getElementById('btnEnviarRecuperacao').onclick = async ()=>{
-    const email = document.getElementById('forgotEmail').value.trim();
-    if(!email){ showForgotPasswordScreen('Preencha o e-mail.'); return; }
+// e-mail tem conta ou não (segurança do próprio Supabase) - por isso a confirmação também fala "se tiver
+// cadastro", sem confirmar nada. redirectTo manda a pessoa de volta pra essa mesma URL, mas com
+// "#...&type=recovery" no fragmento - initAuth() detecta isso e abre showResetPasswordScreen() direto,
+// sem passar pelo login normal (ver initAuth).
+function showForgotPasswordScreen(emailInicial){
+  authCardOpen(`
+    <h2>Esqueci minha senha</h2>
+    <p class="au-note" style="text-align:left; margin:0 0 14px;">Digite seu e-mail corporativo. Vamos enviar um link para você criar uma nova senha.</p>
+    <label class="au-f"><span>E-mail corporativo</span><input type="email" id="forgotEmail" placeholder="nome@fgr.com.br" autocomplete="email" value="${authEsc(emailInicial || authUltimoEmail())}"></label>
+    <button class="au-btn" id="btnEnviarRecuperacao">Enviar link</button>
+    <button class="au-link blue" id="btnVoltarLogin" type="button">Voltar</button>
+  `);
+  const emailEl = document.getElementById('forgotEmail');
+  setTimeout(()=>emailEl.focus(), 50);
+  const enviar = async ()=>{
+    const email = emailEl.value.trim().toLowerCase();
+    if(!authEmailOk(email)){ authMsg('Digite o seu e-mail corporativo.'); emailEl.focus(); return; }
+    const btn = document.getElementById('btnEnviarRecuperacao');
+    authBusy(btn, 'Enviando…'); authMsg('');
     const { error } = await AUTH.auth.resetPasswordForEmail(email, { redirectTo: location.origin+location.pathname });
-    if(error){ showForgotPasswordScreen(traduzErroAuth(error)); return; }
-    openModal(forgotPasswordEnviadoHtml(email));
-    document.getElementById('btnVoltarLogin2').onclick = ()=> showLoginScreen();
+    if(error){ authFree(btn); authMsg(traduzErroAuth(error)); return; }
+    showLoginScreen('Se esse e-mail tiver cadastro, você vai receber um link para criar uma nova senha. Confira também a caixa de spam.', 'ok');
   };
-}
-function resetPasswordScreenHtml(msg){
-  return `
-    <h3>Escolha uma nova senha</h3>
-    <p>Definindo uma nova senha para <strong>${CURRENT_USER ? CURRENT_USER.email : 'sua conta'}</strong>.</p>
-    ${msg ? `<p style="color:var(--critical); font-weight:600;">${msg}</p>` : ''}
-    <div class="form-field"><label>Nova senha</label><input type="password" id="novaSenha" autocomplete="new-password"></div>
-    <div class="form-field"><label>Confirmar nova senha</label><input type="password" id="novaSenhaConfirma" autocomplete="new-password"></div>
-    <div class="modal-actions">
-      <button class="btn btn-primary" id="btnSalvarSenha">Salvar nova senha</button>
-    </div>
-  `;
+  document.getElementById('btnEnviarRecuperacao').onclick = enviar;
+  authOnEnter([emailEl], enviar);
+  document.getElementById('btnVoltarLogin').onclick = ()=> showLoginScreen();
 }
 function showResetPasswordScreen(msg){
-  openModal(resetPasswordScreenHtml(msg));
-  document.getElementById('btnSalvarSenha').onclick = async ()=>{
-    const senha = document.getElementById('novaSenha').value;
-    const confirma = document.getElementById('novaSenhaConfirma').value;
-    if(!senha || senha.length<6){ showResetPasswordScreen('A senha precisa ter pelo menos 6 caracteres.'); return; }
-    if(senha !== confirma){ showResetPasswordScreen('As senhas não são iguais.'); return; }
-    const { error } = await AUTH.auth.updateUser({ password: senha });
-    if(error){ showResetPasswordScreen(traduzErroAuth(error)); return; }
+  authCardOpen(`
+    <h2>Escolha uma nova senha</h2>
+    <p class="au-note" style="text-align:left; margin:0 0 14px;">Definindo uma nova senha para <strong>${authEsc(CURRENT_USER ? CURRENT_USER.email : 'sua conta')}</strong>.</p>
+    <label class="au-f"><span>Nova senha</span><input type="password" id="novaSenha" placeholder="Mínimo de 6 caracteres" autocomplete="new-password"></label>
+    <label class="au-f"><span>Confirmar nova senha</span><input type="password" id="novaSenhaConfirma" placeholder="Repita a senha" autocomplete="new-password"></label>
+    <button class="au-btn" id="btnSalvarSenha">Salvar nova senha</button>
+  `, msg);
+  const s1 = document.getElementById('novaSenha'), s2 = document.getElementById('novaSenhaConfirma');
+  setTimeout(()=>s1.focus(), 50);
+  const salvar = async ()=>{
+    if(!s1.value || s1.value.length < 6){ authMsg('A senha precisa ter pelo menos 6 caracteres.'); s1.focus(); return; }
+    if(s1.value !== s2.value){ authMsg('As senhas não são iguais.'); s2.focus(); return; }
+    const btn = document.getElementById('btnSalvarSenha');
+    authBusy(btn, 'Salvando…'); authMsg('');
+    const { error } = await AUTH.auth.updateUser({ password: s1.value });
+    if(error){ authFree(btn); authMsg(traduzErroAuth(error)); return; }
     // tira o "#...type=recovery" da URL, senão um refresh de página cairia de novo nessa tela
     history.replaceState(null, '', location.pathname+location.search);
-    closeModal();
+    authCardClose();
     toast('Senha atualizada! Você já está logado(a).');
     await afterLogin();
   };
+  document.getElementById('btnSalvarSenha').onclick = salvar;
+  authOnEnter([s1, s2], salvar);
 }
 function waitingApprovalHtml(){
   return `
@@ -1495,34 +1644,6 @@ function showWaitingApproval(){
   };
   document.getElementById('btnTrocarObraEspera').onclick = ()=> showObraScreen();
   document.getElementById('btnTentarDeNovo').onclick = async ()=>{ await enterObra(); };
-}
-function showLoginScreen(msg){
-  openModal(loginScreenHtml(msg));
-  const emailEl = document.getElementById('loginEmail');
-  const senhaEl = document.getElementById('loginSenha');
-  const confirmaEl = document.getElementById('loginSenhaConfirma');
-  document.getElementById('btnEntrar').onclick = async ()=>{
-    const email = emailEl.value.trim(), senha = senhaEl.value;
-    if(!email || !senha){ showLoginScreen('Preencha e-mail e senha.'); return; }
-    const { error } = await AUTH.auth.signInWithPassword({ email, password: senha });
-    if(error){ showLoginScreen(traduzErroAuth(error)); return; }
-    closeModal();
-    await afterLogin();
-  };
-  document.getElementById('btnCriarConta').onclick = async ()=>{
-    const email = emailEl.value.trim(), senha = senhaEl.value, confirma = confirmaEl.value;
-    if(!email || !senha){ showLoginScreen('Preencha e-mail e senha (mínimo 6 caracteres) pra criar a conta.'); return; }
-    if(senha !== confirma){ showLoginScreen('As senhas não são iguais.'); return; }
-    const { data, error } = await AUTH.auth.signUp({ email, password: senha });
-    if(error){ showLoginScreen(traduzErroAuth(error)); return; }
-    if(!data.session){
-      showLoginScreen('Conta criada! Se o projeto pedir confirmação de e-mail, confirme antes de entrar - depois disso, aguarde a aprovação de um planejador.');
-      return;
-    }
-    closeModal();
-    await afterLogin();
-  };
-  document.getElementById('linkEsqueciSenha').onclick = (e)=>{ e.preventDefault(); showForgotPasswordScreen(); };
 }
 // checa (e mostra) o status de quem logou: se ainda "pending", mostra a tela de espera e devolve
 // false (quem chamou NAO deve carregar o resto do app); se "approved", atualiza os botoes/topbar e
@@ -1722,6 +1843,15 @@ async function initAuth(){
     showResetPasswordScreen();
     return false;
   }
+  // "Manter conectado" desmarcado no último login: a sessão só vale até fechar o navegador. O cookie
+  // jb_alive (sem validade) some quando o navegador fecha — sem ele, encerra a sessão guardada (só
+  // neste computador, scope local: não derruba os outros aparelhos dela).
+  try{
+    if(localStorage.getItem(AUTH_KEEP_KEY)==='0' && !/(?:^|;\s*)jb_alive=1/.test(document.cookie)){
+      await AUTH.auth.signOut({ scope: 'local' });
+      localStorage.removeItem(AUTH_KEEP_KEY);
+    }
+  }catch(e){ console.error('keep-session check failed', e); }
   const { data:{ session } } = await AUTH.auth.getSession();
   if(session){
     CURRENT_USER = session.user;
@@ -1776,7 +1906,7 @@ async function openUsersModal(){
     openModal(`
       <h3>Usuários — ${CURRENT_OBRA_NOME}</h3>
       <p>Quem pode entrar nessa obra e o que cada um pode fazer nela. "Planejador" edita tudo;
-      "coordenador" tem autonomia total na matriz G.U.T (Restrições) e só olha o resto;
+      "coordenador" tem autonomia total na Matriz GUT e só olha o resto;
       "visualizador" só olha, mas na matriz G.U.T pode editar a observação e criar restrições novas
       (sempre no nível check-in). Papéis e acessos são só desta obra — não afetam nenhuma outra.</p>
       ${pendentes.length ? `
@@ -1784,7 +1914,7 @@ async function openUsersModal(){
         <div style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px; margin-bottom:14px;">
           ${pendentes.map(u=>`
             <div class="list-row">
-              <div>${u.email} <span class="badge badge-warn">pendente</span></div>
+              <div>${u.nome ? `<strong>${authEsc(u.nome)}</strong><br>` : ''}${u.email} <span class="badge badge-warn">pendente</span></div>
               <div style="display:flex; gap:6px;">
                 <button class="btn btn-sm btn-primary" data-aprovar="${u.email}">Aprovar</button>
                 ${rowActionsHtml(u)}
@@ -1796,7 +1926,7 @@ async function openUsersModal(){
       <div style="max-height:280px; overflow-y:auto; border:1px solid var(--border); border-radius:9px; padding:4px 10px;">
         ${aprovados.length ? aprovados.map(u=>`
           <div class="list-row">
-            <div>${u.email}${u.email===(CURRENT_USER && CURRENT_USER.email) ? ' <span class="badge badge-accent">você</span>' : ''}</div>
+            <div>${u.nome ? `<strong>${authEsc(u.nome)}</strong><br>` : ''}${u.email}${u.email===(CURRENT_USER && CURRENT_USER.email) ? ' <span class="badge badge-accent">você</span>' : ''}</div>
             <div style="display:flex; gap:6px; align-items:center;">
               <select class="inline" data-userrole="${u.email}" ${u.email===(CURRENT_USER && CURRENT_USER.email)?'disabled':''}>
                 <option value="visualizador" ${u.role==='visualizador'?'selected':''}>Visualizador</option>
@@ -4341,7 +4471,7 @@ function screenTabsHtml(){
   return `<div class="screen-tabs" role="tablist">
     <button class="screen-tab ${CURRENT_SCREEN==='home'?'active':''}" data-tab="home" role="tab" aria-selected="${CURRENT_SCREEN==='home'}">📋 Sprint - Acompanhamento de metas</button>
     <button class="screen-tab ${CURRENT_SCREEN==='painel'?'active':''}" data-tab="painel" role="tab" aria-selected="${CURRENT_SCREEN==='painel'}">📊 Painel gerencial</button>
-    <button class="screen-tab ${CURRENT_SCREEN==='restricoes'?'active':''}" data-tab="restricoes" role="tab" aria-selected="${CURRENT_SCREEN==='restricoes'}">🚧 Restrições</button>
+    <button class="screen-tab ${CURRENT_SCREEN==='restricoes'?'active':''}" data-tab="restricoes" role="tab" aria-selected="${CURRENT_SCREEN==='restricoes'}">🚧 Matriz GUT</button>
   </div>`;
 }
 function wireScreenTabs(){
@@ -4733,13 +4863,14 @@ function renderRestricoes(){
     ${screenTabsHtml()}
     <div class="card">
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
-        <h3 class="section-title" style="margin:0;">🚧 Restrições</h3>
+        <h3 class="section-title" style="margin:0;">🚧 Matriz GUT</h3>
         <div class="restricao-busca">
           <input class="search-input" id="restricaoSearch" placeholder="Buscar por restrição, serviço, responsável ou status..." value="${restricaoEsc(RESTRICAO_SEARCH)}">
         </div>
         ${nFiltros ? `<button class="btn" id="btnLimparFiltros" title="Remover os filtros de todas as colunas">✕ Limpar filtros (${nFiltros})</button>` : ''}
         ${!RESTRICAO_DRAFT ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
+      ${auto ? '' : `<div class="restricao-aviso">ℹ️ Você está como <strong>visualizador</strong>: aqui você pode <strong>criar restrições novas</strong> (sempre no nível Check-in) e <strong>editar a observação</strong> de qualquer uma. Os demais campos, o nível e a exclusão são de coordenador e planejador — esses campos aparecem travados.</div>`}
       <div class="panel-table-wrap restricao-wrap">
       <table class="rank-table panel-table restricao-table"${RESTRICAO_COLW?' style="table-layout:fixed;"':''}>
         ${colgroup}
@@ -4753,9 +4884,9 @@ function renderRestricoes(){
             const c = restricaoCls(r), cKey = restricaoClsKey(c);
             const dias = restricaoDias(r);
             const atraso = restricaoAtraso(r);
-            const dicaDe = campo => restricaoPodeEditar(campo) ? ' title="Clique para editar"' : '';
-            const tdE = (campo, cls, extra) => `<td class="${cls||''}${restricaoPodeEditar(campo)?' restricao-ed':''}" data-campo="${campo}"${extra||dicaDe(campo)}>${restricaoCelulaInner(campo, r)}</td>`;
-            const gut = letter => tdE(letter, 'restricao-gut-num', ` title="${RESTRICAO_GUT_TITULO[letter]}${r[letter]!=null?': '+r[letter]+' - '+restricaoGutNome(letter,r[letter]):''}${restricaoPodeEditar(letter)?' (clique para editar)':''}"`);
+            const dicaDe = campo => restricaoPodeEditar(campo) ? ' title="Clique para editar"' : ' title="Somente coordenador e planejador editam este campo"';
+            const tdE = (campo, cls, extra) => `<td class="${cls||''}${restricaoPodeEditar(campo)?' restricao-ed':' restricao-lock'}" data-campo="${campo}"${extra||dicaDe(campo)}>${restricaoCelulaInner(campo, r)}</td>`;
+            const gut = letter => tdE(letter, 'restricao-gut-num', ` title="${RESTRICAO_GUT_TITULO[letter]}${r[letter]!=null?': '+r[letter]+' - '+restricaoGutNome(letter,r[letter]):''}${restricaoPodeEditar(letter)?' (clique para editar)':' — somente coordenador e planejador editam'}"`);
             return `<tr data-id="${r.id}">
               <td class="num-cell mono">${r.item}</td>
               ${tdE('nivel')}
@@ -4856,8 +4987,10 @@ function wireRestricoes(){
   document.querySelectorAll('.restricao-table tbody tr[data-id]').forEach(tr=>{
     tr.addEventListener('click', e=>{
       if(e.target.closest('[data-del-restricao]')) return;
-      const td = e.target.closest('td.restricao-ed');
-      if(td && tr.contains(td)) restricaoEditaCelula(td);
+      const td = e.target.closest('td[data-campo]');
+      if(!td || !tr.contains(td)) return;
+      if(td.classList.contains('restricao-ed')) restricaoEditaCelula(td);
+      else toast('Este campo só pode ser alterado por coordenador ou planejador. Você pode editar a observação.', 'warn');
     });
   });
   document.querySelectorAll('[data-del-restricao]').forEach(b=>{
