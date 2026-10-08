@@ -980,6 +980,11 @@ let TODAY_ORD = null;              // ordinal of VIEW_DATE_REF, used as "as of" 
 // vigentes daquele mês — o Realizado continua vindo só da planilha semanal.
 let META_ROWS = [];                // linhas decodificadas da última planilha de metas
 let META_DATE_REF = null;
+// TODAS as planilhas de metas carregadas, por mês ("2026-09" -> linhas decodificadas). META_ROWS/
+// META_DATE_REF acima são sempre a mais recente (usada pelo Previsto% e pelas datas vigentes das casas
+// ainda não concluídas); as comparações "meta × realizado" de um mês específico (Painel gerencial,
+// Por coordenador, gráfico semana a semana) usam a planilha DAQUELE mês — ver metaOf()/metaRefForWeeks().
+let META_BY_REF = {};
 let METAS_META = [];               // [{dateRef, uploadedAt, rowCount, chunkCount}] asc
 let METAS_STATE_DOC = { dateRefs: [], latest: null, previous: null };
 let CAUSAS = [];                   // [{id, pacoteIdx, semanaLabel, weekOrd, causaId, obs, ts}]
@@ -1358,12 +1363,81 @@ function computePrevistoPct(vigIni, vigFim, asOfOrd){
   }
   return 0;
 }
+// A planilha de metas MAIS RECENTE continua sendo a "vigente" (Previsto%, datas das casas em aberto).
+// Já a comparação meta × realizado DE UM MÊS usa a planilha daquele mês — ver metaOf(). Bug reportado
+// em 2026-10-08: depois de subir as metas de outubro, o Painel gerencial mostrava outubro mesmo com
+// setembro selecionado, porque só a última planilha era guardada e aplicada a todos os meses.
+function syncMetasLatest(){
+  const refs = Object.keys(META_BY_REF).sort();
+  META_DATE_REF = refs.length ? refs[refs.length-1] : null;
+  META_ROWS = META_DATE_REF ? META_BY_REF[META_DATE_REF] : [];
+}
+// qual planilha de metas vale pra um conjunto de semanas (um "mês" do time): o mês de calendário que
+// concentra a maioria das semanas (o mês de 5 semanas "Setembro" termina em 02/10 e ainda é setembro).
+// Sem planilha daquele mês: a mais recente anterior a ele; senão a mais antiga existente.
+function metaRefResolve(ym){
+  const refs = Object.keys(META_BY_REF).sort();
+  if(!refs.length) return null;
+  if(META_BY_REF[ym]) return ym;
+  const antes = refs.filter(r=>r<ym);
+  return antes.length ? antes[antes.length-1] : refs[0];
+}
+function metaRefForWeeks(weekOrds){
+  if(!weekOrds || !weekOrds.length) return META_DATE_REF;
+  const cont = {};
+  weekOrds.forEach(w=>{ const k = monthKey(w); cont[k] = (cont[k]||0)+1; });
+  const ym = Object.keys(cont).sort((a,b)=> cont[b]-cont[a] || (a<b?-1:1))[0];
+  return metaRefResolve(ym);
+}
+// planilha de metas que vale pra UMA semana: a do "mês" configurado que contém essa semana (pra bater
+// com o Painel gerencial) ou, se a semana não está em nenhum mês configurado, a do mês de calendário.
+function metaRefForWeek(w){
+  const mes = MESES.find(m=>m.weekOrds.includes(w));
+  return mes ? metaRefForWeeks(mes.weekOrds) : metaRefResolve(monthKey(w));
+}
+// meta (data planejada fim/início + responsável) de uma casa×pacote segundo a planilha do mês `ref`.
+// Casa que não está naquela planilha (ou nenhuma planilha enviada) cai no comportamento de sempre: a
+// meta vigente da casa (r.metaVigFim, a mais recente) e, sem ela, a data real (vigFim).
+function metaOf(r, ref){
+  const m = ref && r.metaByRef ? r.metaByRef[ref] : null;
+  if(m) return m;
+  return {
+    vigIni: r.metaVigIni!=null ? r.metaVigIni : r.vigIni,
+    vigFim: r.metaVigFim!=null ? r.metaVigFim : r.vigFim,
+    respIdx: r.metaRespIdx!=null ? r.metaRespIdx : r.respIdx,
+  };
+}
+// semanas em que uma casa×pacote CONTA COMO META, uma por planilha de mês aplicável: a casa é meta da
+// semana W se, na planilha do mês a que W pertence, a data planejada dela cai em W. Uma casa replanejada
+// de setembro pra outubro conta como meta de setembro (planilha de setembro) E de outubro (planilha de
+// outubro) — cada mês é medido contra o que foi planejado NAQUELE mês. `resp` = responsável segundo
+// aquela planilha. Sem nenhuma planilha de metas: uma entrada só, pela data real (comportamento antigo).
+function metaWeeks(r){
+  const out = [];
+  const refs = META_DATE_REF ? Object.keys(META_BY_REF) : [null];
+  refs.forEach(ref=>{
+    const m = metaOf(r, ref);
+    const fim = m.vigFim;
+    if(fim==null || fim<0) return;
+    const w = weekOfOrd(fim);
+    if(ref!=null && metaRefForWeek(w)!==ref) return;
+    out.push({ w, resp: m.respIdx });
+  });
+  return out;
+}
 function applyMetasOverride(){
+  syncMetasLatest();
+  ROWS.forEach(r=>{ r.metaByRef = null; });
   if(!META_ROWS.length) return;
-  const map = new Map();
-  META_ROWS.forEach(r=> map.set(r.quadra+'|'+r.casa+'|'+r.pacoteIdx, r));
+  // índice por planilha de cada mês (quadra|casa|pacote) e vínculo em cada linha: r.metaByRef[mês]
+  const refs = Object.keys(META_BY_REF);
+  const maps = {};
+  refs.forEach(ref=>{ const mp = new Map(); META_BY_REF[ref].forEach(x=> mp.set(x.quadra+'|'+x.casa+'|'+x.pacoteIdx, x)); maps[ref] = mp; });
+  const map = maps[META_DATE_REF];
   ROWS.forEach(r=>{
-    const m = map.get(r.quadra+'|'+r.casa+'|'+r.pacoteIdx);
+    const k = r.quadra+'|'+r.casa+'|'+r.pacoteIdx;
+    refs.forEach(ref=>{ const x = maps[ref].get(k); if(x){ if(!r.metaByRef) r.metaByRef = {}; r.metaByRef[ref] = x; } });
+    const m = map.get(k);
     if(!m) return;
     // metaVigIni/metaVigFim: data PLANEJADA da planilha de Metas, SEMPRE — mesmo pra casa já concluída.
     // Usada SÓ por "Meta do mês"/Total mês (mesMetricsForPacote), pra sempre bater com o planejamento
@@ -2288,6 +2362,7 @@ async function initDb(){
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
   RESTRICAO_FILTROS = {}; RESTRICAO_ORDEM = null; RESTRICAO_CONGELA = null; RESTRICAO_IND = {mes:'', escopo:'abertas'};
+  META_ROWS = []; META_DATE_REF = null; META_BY_REF = {};
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -2360,7 +2435,11 @@ async function initDb(){
     if(METAS_STATE_DOC.dateRefs.length){
       const metaDocs = await Promise.all(METAS_STATE_DOC.dateRefs.map(dr=>db.doc('metas/'+dr).get()));
       METAS_META = metaDocs.filter(s=>s.exists).map(s=>s.data()).sort((a,b)=>a.dateRef<b.dateRef?-1:1);
-      await loadMetasIntoView(METAS_STATE_DOC.latest);
+      // carrega TODAS as planilhas de metas (uma por mês), não só a mais recente — o Painel gerencial
+      // compara cada mês com a meta DAQUELE mês (ver metaOf)
+      const metaRowsPorMes = await Promise.all(METAS_STATE_DOC.dateRefs.map(dr=>readMetasRows(dr)));
+      METAS_STATE_DOC.dateRefs.forEach((dr,i)=>{ if(metaRowsPorMes[i]) META_BY_REF[dr] = metaRowsPorMes[i]; });
+      applyMetasOverride();
     }
     // serviços embutidos na planilha semanal (2026-09-17, Jardins Frankfurt) — ver saveServicoSemana/
     // refreshServicosRows. Lido por último, depois de MESES/SELECTED_MES_ID já resolvidos (uiPrefs,
@@ -2585,7 +2664,7 @@ async function readMetasRows(dateRef){
 async function loadMetasIntoView(dateRef){
   const rows = await readMetasRows(dateRef);
   if(rows){
-    META_ROWS = rows; META_DATE_REF = dateRef;
+    META_BY_REF[dateRef] = rows;
     applyMetasOverride();
   }
 }
@@ -3143,8 +3222,7 @@ async function handleWorkbook(file, kind){
   closeModal();
 
   if(isMetas){
-    META_ROWS = encoded.map(decodeRow);
-    META_DATE_REF = dateRef;
+    META_BY_REF[dateRef] = encoded.map(decodeRow); // applyMetasOverride (abaixo) refaz META_ROWS/META_DATE_REF
   } else {
     ROWS = encoded.map(decodeRow);
     VIEW_DATE_REF = dateRef;
@@ -3220,8 +3298,7 @@ function weeklySeries(rs, weeksBack){
   const buckets = new Map(); // weekOrd -> {meta,realizado}
   const bump = (w, key)=>{ if(!buckets.has(w)) buckets.set(w,{meta:0, realizado:0}); buckets.get(w)[key]++; };
   rs.forEach(r=>{
-    const metaFim = r.metaVigFim!=null ? r.metaVigFim : r.vigFim;
-    if(metaFim!=null && metaFim>=0) bump(weekOfOrd(metaFim), 'meta');
+    metaWeeks(r).forEach(x=> bump(x.w, 'meta'));
     if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0) bump(weekOfOrd(r.vigFim), 'realizado');
   });
   const weeksAll = [...buckets.keys()].filter(w=>w<=weekOfOrd(TODAY_ORD)).sort((a,b)=>a-b);
@@ -3286,9 +3363,7 @@ function weeklySeriesForWeeks(rs, weekOrds, respFiltro){
   const buckets = new Map();
   const bump = (w, key)=>{ if(!buckets.has(w)) buckets.set(w,{meta:0, realizado:0}); buckets.get(w)[key]++; };
   rs.forEach(r=>{
-    const metaResp = r.metaRespIdx!=null ? r.metaRespIdx : r.respIdx;
-    const metaFim = r.metaVigFim!=null ? r.metaVigFim : r.vigFim;
-    if(metaFim!=null && metaFim>=0 && (respFiltro==null || respFiltro.includes(metaResp))) bump(weekOfOrd(metaFim), 'meta');
+    metaWeeks(r).forEach(x=>{ if(respFiltro==null || respFiltro.includes(x.resp)) bump(x.w, 'meta'); });
     if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && (respFiltro==null || respFiltro.includes(r.respIdx))) bump(weekOfOrd(r.vigFim), 'realizado');
   });
   return weekOrds.map(w=>({ ord:w, label: fmtDateShort(w), meta:(buckets.get(w)||{meta:0}).meta, realizado:(buckets.get(w)||{realizado:0}).realizado }));
@@ -3331,9 +3406,7 @@ function mesMetricsForPacote(pacoteIdx, weekOrds, respFiltro){
   const weekSet = new Set(weekOrds);
   let meta=0, realizado=0;
   rs.forEach(r=>{
-    const metaResp = r.metaRespIdx!=null ? r.metaRespIdx : r.respIdx;
-    const fim = r.metaVigFim!=null ? r.metaVigFim : r.vigFim;
-    if(fim!=null && fim>=0 && weekSet.has(weekOfOrd(fim)) && (respFiltro==null || respFiltro.includes(metaResp))) meta++;
+    metaWeeks(r).forEach(x=>{ if(weekSet.has(x.w) && (respFiltro==null || respFiltro.includes(x.resp))) meta++; });
     if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && weekSet.has(weekOfOrd(r.vigFim)) && (respFiltro==null || respFiltro.includes(r.respIdx))) realizado++;
   });
   return { meta, realizado, pct: meta ? realizado/meta : null };
@@ -3920,12 +3993,10 @@ function respWeeklyBreakdown(pacoteIdx, weekOrds){
     wm.set(weekOrd, (wm.get(weekOrd)||0)+1);
   }
   rs.forEach(r=>{
-    const metaRespIdx = r.metaRespIdx!=null ? r.metaRespIdx : r.respIdx;
-    const metaFim = r.metaVigFim!=null ? r.metaVigFim : r.vigFim;
-    if(metaFim!=null && metaFim>=0){
-      bump(metaBuckets, metaRespIdx, weekOfOrd(metaFim));
-      if(!names.has(metaRespIdx)) names.set(metaRespIdx, LOOKUPS.responsaveis[metaRespIdx]||'—');
-    }
+    metaWeeks(r).forEach(x=>{
+      bump(metaBuckets, x.resp, x.w);
+      if(!names.has(x.resp)) names.set(x.resp, LOOKUPS.responsaveis[x.resp]||'—');
+    });
     if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0){
       bump(realBuckets, r.respIdx, weekOfOrd(r.vigFim));
       if(!names.has(r.respIdx)) names.set(r.respIdx, LOOKUPS.responsaveis[r.respIdx]||'—');
@@ -5921,7 +5992,7 @@ function renderPainelGerencial(){
   }
   // um respIdx "usado" é qualquer um que apareça em ROWS de fato agora, como respIdx/realizado OU
   // metaRespIdx/previsto — inclui buckets combinados usados diretamente.
-  const respIdxsUsados = new Set(ROWS.flatMap(r=>[r.respIdx, r.metaRespIdx!=null?r.metaRespIdx:r.respIdx]).filter(i=>i!=null));
+  const respIdxsUsados = new Set(ROWS.flatMap(r=>[r.respIdx, r.metaRespIdx!=null?r.metaRespIdx:r.respIdx, ...Object.values(r.metaByRef||{}).map(x=>x.respIdx)]).filter(i=>i!=null));
   // opção aparece se a PESSOA (sozinha OU em qualquer combinado que a cite) tiver pelo menos um
   // respIdx usado — é assim que "Emilly Brito" aparece como opção mesmo sem nenhuma casa com respIdx
   // isolado dela: o bucket combinado que a cita está em uso, então ela conta como presente.
@@ -6559,12 +6630,12 @@ function openSnapshotsModal(){
         const success = await deleteSnapshot(dr, true);
         if(success){
           toast('Metas excluídas.');
-          if(wasCurrent){
-            if(METAS_STATE_DOC.latest) await loadMetasIntoView(METAS_STATE_DOC.latest);
-            else { META_ROWS = []; META_DATE_REF = null; }
-            // recarrega a semanal do zero pra reverter qualquer Previsto/data sobrescritos pela meta excluída
-            if(!EXAMPLE_MODE && VIEW_DATE_REF) await loadSnapshotIntoView(VIEW_DATE_REF);
-          }
+          delete META_BY_REF[dr];
+          syncMetasLatest();
+          // recarrega a semanal do zero pra reverter qualquer Previsto/data sobrescritos pela meta excluída
+          // (e tirar a planilha excluída do vínculo por mês de cada casa)
+          if(!EXAMPLE_MODE && VIEW_DATE_REF) await loadSnapshotIntoView(VIEW_DATE_REF);
+          else applyMetasOverride();
           render(); paint();
         }
       };
