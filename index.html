@@ -2287,7 +2287,7 @@ async function initDb(){
   PRESENTATION_MODE = false; CAUSAS_FILTRO_PACOTES = null; CAUSAS_FILTRO_PERIODOS = null;
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
-  RESTRICAO_FILTROS = {}; RESTRICAO_ORDEM = null; RESTRICAO_IND = {mes:'', escopo:'abertas'};
+  RESTRICAO_FILTROS = {}; RESTRICAO_ORDEM = null; RESTRICAO_CONGELA = null; RESTRICAO_IND = {mes:'', escopo:'abertas'};
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -2708,7 +2708,11 @@ async function loadRestricoes(){
   if(!db){ RESTRICOES = []; return; }
   try{
     const snap = await db.collection('restricoes').get();
-    RESTRICOES = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    // O servidor devolve os documentos SEM ordem garantida: depois de uma edição (que reescreve a linha no
+    // banco) o item mudava de lugar na lista e "subia pro topo" (2026-10-08, reclamação dela). O id nasce
+    // como id_<hora de criação>_<sufixo> (e na importação do Excel respeita a ordem da planilha), então
+    // ordenar por id = ordem de cadastro, sempre a mesma, editado ou não.
+    RESTRICOES = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=> a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   }catch(e){ console.error('loadRestricoes failed', e); }
 }
 // devolve true se gravou (o servidor pode recusar: visualizador sempre cria no nível check-in, por exemplo
@@ -4761,6 +4765,7 @@ let RESTRICAO_FILTROS = {};
 // apresentamos do maior para o menor na classificação GUT"): {k:coluna, dir:'asc'|'desc'} ou null (= ordem
 // em que as restrições foram cadastradas). Só muda a ordem na tela; o "Item" de cada linha não muda.
 let RESTRICAO_ORDEM = null;
+let RESTRICAO_CONGELA = null; // ids na ordem em que estavam na tela quando ela editou algo com classificação ativa
 function restricaoEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function restricaoNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
 // "Nível" da restrição (2026-10-05, pedido dela): em qual fórum ela é acompanhada.
@@ -4872,6 +4877,13 @@ function restricaoChaveOrdem(col, r){
 }
 function restricaoOrdena(lista){
   if(!RESTRICAO_ORDEM) return lista;
+  // depois de editar uma célula com a lista classificada, a linha NÃO pula pra outra posição (ex.: mudar o G
+  // de uma restrição com a classificação em ordem decrescente a levava pro topo): a ordem que estava na tela
+  // fica congelada até ela clicar de novo num título ou no menu de classificação
+  if(RESTRICAO_CONGELA){
+    const pos = new Map(RESTRICAO_CONGELA.map((id,i)=>[id,i]));
+    return lista.map((r,i)=>({r, p: pos.has(r.id) ? pos.get(r.id) : 1e9+i})).sort((a,b)=>a.p-b.p).map(x=>x.r);
+  }
   const col = RESTRICAO_COLS.find(c=>c.k===RESTRICAO_ORDEM.k);
   if(!col) return lista;
   const dir = RESTRICAO_ORDEM.dir==='desc' ? -1 : 1;
@@ -4989,6 +5001,7 @@ function restricaoAbreFiltro(btn, col){
   pop.querySelectorAll('.rfp-ord').forEach(b=>{
     b.onclick = ()=>{
       const dir = b.dataset.ord;
+      RESTRICAO_CONGELA = null;
       RESTRICAO_ORDEM = (ordAtual===dir) ? null : {k: col.k, dir}; // clicar na que já está ativa desliga
       restricaoFechaFiltro();
       renderRestricoes();
@@ -5096,6 +5109,7 @@ function restricaoAbreData(td, titulo, atual, aoEscolher){
   inp.focus();
 }
 async function restricaoGrava(id, patch){
+  if(RESTRICAO_ORDEM) RESTRICAO_CONGELA = [...document.querySelectorAll('.restricao-table tbody tr[data-id]')].map(tr=>tr.dataset.id);
   await updateRestricao(id, patch);
   renderRestricoes();
 }
@@ -5296,6 +5310,7 @@ function wireRestricoes(){
       const k = el.dataset.rsort;
       const col = RESTRICAO_COLS.find(c=>c.k===k);
       const primeiro = col.num ? 'desc' : 'asc';
+      RESTRICAO_CONGELA = null;
       if(!RESTRICAO_ORDEM || RESTRICAO_ORDEM.k!==k) RESTRICAO_ORDEM = {k, dir:primeiro};
       else if(RESTRICAO_ORDEM.dir===primeiro) RESTRICAO_ORDEM = {k, dir: primeiro==='asc' ? 'desc' : 'asc'};
       else RESTRICAO_ORDEM = null;
