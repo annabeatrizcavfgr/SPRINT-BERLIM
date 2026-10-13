@@ -419,6 +419,20 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .restricao-table .restricao-pill{min-width:0; padding:3px 9px; white-space:nowrap;}
 .restricao-table .restricao-nivel{padding:3px 9px; white-space:nowrap;}
 .restricao-table .restricao-cls{min-width:44px; padding:3px 8px; font-size:13px;}
+/* janela mais estreita (ou navegador com zoom): a tabela TEM que caber sem rolagem lateral — senão a
+   Classificação, a coluna mais importante, some pra fora da tela. Pílulas podem quebrar linha, cabeçalhos
+   e células ficam mais justos e as colunas de texto aceitam ser mais estreitas. */
+@media (max-width:1600px){
+  .restricao-table .restricao-pill, .restricao-table .restricao-nivel{white-space:normal; padding:3px 7px; line-height:1.2;}
+  .panel-table.restricao-table thead th{font-size:10.5px; letter-spacing:0; padding:8px 3px;}
+  .panel-table.restricao-table tbody td{padding:4px 4px;}
+  .panel-table.restricao-table th{min-width:0;}
+  .restricao-table td[data-campo="solucao"]{min-width:115px; max-width:420px;}
+  .restricao-table td[data-campo="restricao"]{min-width:95px; max-width:260px;}
+  .restricao-table .restricao-servico-cell{min-width:85px; max-width:150px;}
+  .restricao-table .restricao-cls{min-width:34px; padding:3px 6px;}
+  .restricao-table .restricao-gut-num{width:30px;}
+}
 body.on-restricoes #app{max-width:none;}
 body.on-restricoes main#screen{padding-left:14px; padding-right:14px;}
 body.on-restricoes #topbar, body.on-restricoes .context-bar{padding-left:14px; padding-right:14px;}
@@ -5370,7 +5384,7 @@ function renderRestricoes(){
         ${colgroup}
         <thead><tr>
           ${RESTRICAO_COLS.map(c=>restricaoThHtml(c)).join('')}
-          <th style="min-width:58px;"></th>
+          <th style="min-width:${RESTRICAO_DRAFT?58:40}px;"></th>
         </tr></thead>
         <tbody>
           ${RESTRICAO_DRAFT ? restricaoRascunhoLinhaHtml() : ''}
