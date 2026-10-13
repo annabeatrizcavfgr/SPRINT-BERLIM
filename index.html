@@ -398,6 +398,17 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .panel-table.restricao-table tbody td:last-child{border-right:none;}
 .panel-table.restricao-table tbody tr:last-child td{border-bottom:none;}
 .restricao-table td.left{max-width:150px; text-align:left;}
+/* textos longos (restrição e observação): mostra só 3 linhas e um "+ ver mais" que abre o texto todo no
+   próprio lugar — sem isso uma observação grande deixava a linha enorme e a tabela ilegível */
+.restricao-table td[data-campo="solucao"]{min-width:190px; max-width:240px;}
+.restricao-table td[data-campo="restricao"]{min-width:130px; max-width:190px;}
+.restricao-table .rt-clamp{display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:break-word;}
+.restricao-table .rt-clamp.aberto{display:block; overflow:visible; -webkit-line-clamp:unset;}
+.restricao-table .rt-mais{
+  display:inline-block; margin-top:4px; padding:1px 8px; border:1px solid var(--border); border-radius:999px;
+  background:var(--surface); color:var(--info); font:inherit; font-size:11px; font-weight:700; cursor:pointer;
+}
+.restricao-table .rt-mais:hover{border-color:var(--info); background:var(--info-soft, var(--surface-2));}
 .restricao-table .restricao-servico-cell{max-width:110px;}
 /* seta de filtro (estilo Excel) no título da coluna; amarela quando há filtro aplicado */
 .restricao-table .rf-btn{
@@ -985,6 +996,7 @@ let META_DATE_REF = null;
 // ainda não concluídas); as comparações "meta × realizado" de um mês específico (Painel gerencial,
 // Por coordenador, gráfico semana a semana) usam a planilha DAQUELE mês — ver metaOf()/metaRefForWeeks().
 let META_BY_REF = {};
+let RESTRICAO_ABERTAS = new Set();  // textos longos da Matriz GUT abertos em "+ ver mais" ("<id>|<campo>")
 let METAS_META = [];               // [{dateRef, uploadedAt, rowCount, chunkCount}] asc
 let METAS_STATE_DOC = { dateRefs: [], latest: null, previous: null };
 let CAUSAS = [];                   // [{id, pacoteIdx, semanaLabel, weekOrd, causaId, obs, ts}]
@@ -2362,7 +2374,7 @@ async function initDb(){
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
   RESTRICAO_FILTROS = {}; RESTRICAO_ORDEM = null; RESTRICAO_CONGELA = null; RESTRICAO_IND = {mes:'', escopo:'abertas'};
-  META_ROWS = []; META_DATE_REF = null; META_BY_REF = {};
+  META_ROWS = []; META_DATE_REF = null; META_BY_REF = {}; RESTRICAO_ABERTAS = new Set();
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -5110,8 +5122,38 @@ function restricaoCelulaInner(campo, r){
     }
     case 'status': return `<span class="restricao-pill ${restricaoStatusPill(r.status)}">${restricaoStatusLabel(r.status)}</span>`;
     case 'g': case 'u': case 't': return r[campo]!=null ? String(r[campo]) : '—';
+    case 'restricao': case 'solucao': {
+      const txt = restricaoEsc(r[campo]);
+      if(!txt) return '—';
+      if(!r.id) return txt;
+      return `<div class="rt-clamp${RESTRICAO_ABERTAS.has(r.id+'|'+campo)?' aberto':''}">${txt}</div>`;
+    }
     default: return restricaoEsc(r[campo]) || '—';
   }
+}
+// botão "+ ver mais" / "− ver menos" nos textos longos — só aparece onde o texto realmente passa de 3
+// linhas. Abre/fecha na hora (sem redesenhar a tabela, pra não perder a posição da rolagem) e lembra o que
+// ficou aberto enquanto a tela é redesenhada.
+function restricaoMarcaLongos(){
+  document.querySelectorAll('.restricao-table td[data-campo] .rt-clamp').forEach(box=>{
+    const td = box.closest('td');
+    const chave = td.closest('tr').dataset.id+'|'+td.dataset.campo;
+    const aberto = box.classList.contains('aberto');
+    if(!aberto && box.scrollHeight <= box.clientHeight + 1) return;
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'rt-mais';
+    const rotulo = ab=> ab ? '− ver menos' : '+ ver mais';
+    b.textContent = rotulo(aberto);
+    b.title = aberto ? 'Recolher o texto' : 'Ler o texto completo';
+    b.onclick = e=>{
+      e.stopPropagation();
+      const ab = box.classList.toggle('aberto');
+      if(ab) RESTRICAO_ABERTAS.add(chave); else RESTRICAO_ABERTAS.delete(chave);
+      b.textContent = rotulo(ab);
+      b.title = ab ? 'Recolher o texto' : 'Ler o texto completo';
+    };
+    td.appendChild(b);
+  });
 }
 // opções do menu flutuante de cada coluna do tipo "menu"
 function restricaoMenuOpcoes(campo){
@@ -5216,6 +5258,8 @@ function restricaoEditaCelula(td){
   td.classList.add('restricao-editing');
   td.textContent = '';
   td.appendChild(el);
+  // texto longo aparecia cortado (a célula mostrava só 3 linhas): o campo cresce pra caber o texto todo
+  if(tipo==='area') el.style.height = Math.min(Math.max(el.scrollHeight + 2, parseFloat(el.style.height)||0), 320) + 'px';
   el.focus();
   if(tipo!=='date') el.select();
   let feito = false;
@@ -5337,6 +5381,7 @@ function renderRestricoes(){
   </div>`;
   wireScreenTabs();
   wireRestricoes();
+  restricaoMarcaLongos();
   renderRestricaoIndicadores();
 }
 // redesenha e devolve o foco/cursor pro campo que estava sendo digitado (busca ou filtro)
