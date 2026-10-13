@@ -350,7 +350,7 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
   background:var(--info-soft, var(--surface-2)); border:1px solid var(--border); color:var(--text);
 }
 .restricao-table td.restricao-editing{box-shadow:inset 0 0 0 2px #3E4659; background:var(--surface);}
-.restricao-table td.restricao-editing, .restricao-table td.restricao-draft-cell{padding:4px;}
+.panel-table.restricao-table tbody td.restricao-editing, .panel-table.restricao-table tbody td.restricao-draft-cell{padding:4px;}
 .restricao-edit{
   width:100%; min-width:0; box-sizing:border-box; font:inherit; font-size:12.5px; padding:5px 6px;
   border:1px solid var(--border); border-radius:6px; background:#fff; color:#222; text-align:left; resize:none;
@@ -400,15 +400,33 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .restricao-table td.left{max-width:150px; text-align:left;}
 /* textos longos (restrição e observação): mostra só 3 linhas e um "+ ver mais" que abre o texto todo no
    próprio lugar — sem isso uma observação grande deixava a linha enorme e a tabela ilegível */
-.restricao-table td[data-campo="solucao"]{min-width:190px; max-width:240px;}
-.restricao-table td[data-campo="restricao"]{min-width:130px; max-width:190px;}
-.restricao-table .rt-clamp{display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:break-word;}
+.restricao-table td[data-campo="solucao"]{min-width:230px; max-width:560px;}
+.restricao-table td[data-campo="restricao"]{min-width:150px; max-width:340px;}
+.restricao-table .rt-cell{display:flex; align-items:flex-start; gap:6px;}
+.restricao-table .rt-clamp{flex:1; min-width:0; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:break-word;}
 .restricao-table .rt-clamp.aberto{display:block; overflow:visible; -webkit-line-clamp:unset;}
+/* o "+" fica AO LADO do texto (não embaixo) pra não acrescentar uma linha em cada restrição longa */
 .restricao-table .rt-mais{
-  display:inline-block; margin-top:4px; padding:1px 8px; border:1px solid var(--border); border-radius:999px;
-  background:var(--surface); color:var(--info); font:inherit; font-size:11px; font-weight:700; cursor:pointer;
+  flex:none; width:20px; height:20px; padding:0; border:1px solid var(--border); border-radius:50%;
+  background:var(--surface); color:var(--info); font:inherit; font-size:15px; font-weight:700; line-height:1; cursor:pointer;
 }
 .restricao-table .rt-mais:hover{border-color:var(--info); background:var(--info-soft, var(--surface-2));}
+/* ---- aproveitar a tela: linhas mais compactas, tabela na largura toda e "Tela cheia" ---- */
+.panel-table.restricao-table{font-size:12.5px; line-height:1.3;}
+.panel-table.restricao-table tbody td{padding:5px 7px;}
+.restricao-table .restricao-servico-cell{min-width:150px; max-width:200px;}
+/* pílulas menores e numa linha só — era o que mais engordava a linha (Status/Nível quebravam em 2 linhas) */
+.restricao-table .restricao-pill{min-width:0; padding:3px 9px; white-space:nowrap;}
+.restricao-table .restricao-nivel{padding:3px 9px; white-space:nowrap;}
+.restricao-table .restricao-cls{min-width:44px; padding:3px 8px; font-size:13px;}
+body.on-restricoes #app{max-width:none;}
+body.on-restricoes main#screen{padding-left:14px; padding-right:14px;}
+body.on-restricoes #topbar, body.on-restricoes .context-bar{padding-left:14px; padding-right:14px;}
+/* Tela cheia: só a tabela, ocupando a janela inteira (Esc sai) */
+body.restricao-foco #topbar, body.restricao-foco .context-bar, body.restricao-foco .screen-tabs, body.restricao-foco #restricaoInd{display:none;}
+body.restricao-foco main#screen{padding:8px 10px 10px;}
+body.restricao-foco main#screen .card{padding:10px 12px;}
+body.restricao-foco .restricao-wrap{max-height:calc(100vh - 112px) !important;}
 .restricao-table .restricao-servico-cell{max-width:110px;}
 /* seta de filtro (estilo Excel) no título da coluna; amarela quando há filtro aplicado */
 .restricao-table .rf-btn{
@@ -918,6 +936,8 @@ const ICON_PATHS = {
   sort:'<path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/>',
   x:'<path d="M6 6l12 12M18 6L6 18"/>',
   calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  expand:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  compress:'<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
 };
 function ico(name, size){
   return `<span class="ico"${size?` style="width:${size}px;height:${size}px"`:''}><svg viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name]||''}</svg></span>`;
@@ -996,7 +1016,8 @@ let META_DATE_REF = null;
 // ainda não concluídas); as comparações "meta × realizado" de um mês específico (Painel gerencial,
 // Por coordenador, gráfico semana a semana) usam a planilha DAQUELE mês — ver metaOf()/metaRefForWeeks().
 let META_BY_REF = {};
-let RESTRICAO_ABERTAS = new Set();  // textos longos da Matriz GUT abertos em "+ ver mais" ("<id>|<campo>")
+let RESTRICAO_ABERTAS = new Set();  // textos longos da Matriz GUT abertos no "+" ("<id>|<campo>")
+let RESTRICAO_FOCO = false;         // Matriz GUT em "Tela cheia" (só a tabela, ver body.restricao-foco)
 let METAS_META = [];               // [{dateRef, uploadedAt, rowCount, chunkCount}] asc
 let METAS_STATE_DOC = { dateRefs: [], latest: null, previous: null };
 let CAUSAS = [];                   // [{id, pacoteIdx, semanaLabel, weekOrd, causaId, obs, ts}]
@@ -2374,7 +2395,7 @@ async function initDb(){
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
   RESTRICAO_FILTROS = {}; RESTRICAO_ORDEM = null; RESTRICAO_CONGELA = null; RESTRICAO_IND = {mes:'', escopo:'abertas'};
-  META_ROWS = []; META_DATE_REF = null; META_BY_REF = {}; RESTRICAO_ABERTAS = new Set();
+  META_ROWS = []; META_DATE_REF = null; META_BY_REF = {}; RESTRICAO_ABERTAS = new Set(); RESTRICAO_FOCO = false;
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -4801,6 +4822,9 @@ function render(){
     document.getElementById('exampleBannerSlot').innerHTML = EXAMPLE_MODE
       ? '<div id="example-banner">'+ico('alert')+' Exibindo dados de exemplo. Envie a planilha semanal para começar a acompanhar a obra real.</div>' : '';
     populateWeekPicker();
+    // Matriz GUT usa a largura toda da janela (e, em "Tela cheia", só a tabela) — ver CSS body.on-restricoes
+    document.body.classList.toggle('on-restricoes', CURRENT_SCREEN==='restricoes');
+    document.body.classList.toggle('restricao-foco', CURRENT_SCREEN==='restricoes' && RESTRICAO_FOCO);
     if(CURRENT_SCREEN==='painel') renderPainelGerencial();
     else if(CURRENT_SCREEN==='restricoes') renderRestricoes();
     else renderGeral();
@@ -5126,7 +5150,7 @@ function restricaoCelulaInner(campo, r){
       const txt = restricaoEsc(r[campo]);
       if(!txt) return '—';
       if(!r.id) return txt;
-      return `<div class="rt-clamp${RESTRICAO_ABERTAS.has(r.id+'|'+campo)?' aberto':''}">${txt}</div>`;
+      return `<div class="rt-cell"><div class="rt-clamp${RESTRICAO_ABERTAS.has(r.id+'|'+campo)?' aberto':''}">${txt}</div></div>`;
     }
     default: return restricaoEsc(r[campo]) || '—';
   }
@@ -5142,17 +5166,19 @@ function restricaoMarcaLongos(){
     if(!aberto && box.scrollHeight <= box.clientHeight + 1) return;
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'rt-mais';
-    const rotulo = ab=> ab ? '− ver menos' : '+ ver mais';
+    const rotulo = ab=> ab ? '−' : '+';
     b.textContent = rotulo(aberto);
     b.title = aberto ? 'Recolher o texto' : 'Ler o texto completo';
+    b.setAttribute('aria-label', b.title);
     b.onclick = e=>{
       e.stopPropagation();
       const ab = box.classList.toggle('aberto');
       if(ab) RESTRICAO_ABERTAS.add(chave); else RESTRICAO_ABERTAS.delete(chave);
       b.textContent = rotulo(ab);
       b.title = ab ? 'Recolher o texto' : 'Ler o texto completo';
+      b.setAttribute('aria-label', b.title);
     };
-    td.appendChild(b);
+    box.parentElement.appendChild(b);
   });
 }
 // opções do menu flutuante de cada coluna do tipo "menu"
@@ -5335,6 +5361,7 @@ function renderRestricoes(){
         </div>
         ${nFiltros ? `<button class="btn" id="btnLimparFiltros" title="Remover os filtros de todas as colunas">✕ Limpar filtros (${nFiltros})</button>` : ''}
         ${auto && !RESTRICAO_DRAFT ? `<button class="btn" id="btnImportarGut" title="Sobe a planilha da GUT (Excel) e ACRESCENTA as restrições novas à matriz, sem trocar nem duplicar o que já existe">${ico('upload')} Importar Excel</button>` : ''}
+        <button class="btn" id="btnFocoGut" title="${RESTRICAO_FOCO?'Voltar ao layout normal (Esc)':'Esconde o cabeçalho e as abas e usa a janela inteira só pra tabela'}">${ico(RESTRICAO_FOCO?'compress':'expand')} ${RESTRICAO_FOCO?'Sair da tela cheia':'Tela cheia'}</button>
         ${!RESTRICAO_DRAFT ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
       ${auto ? '' : `<div class="restricao-aviso">ℹ️ Você está como <strong>visualizador</strong>: aqui você pode <strong>criar restrições novas</strong> (sempre no nível Check-in) e <strong>editar a observação</strong> de qualquer uma. Os demais campos, o nível e a exclusão são de coordenador e planejador — esses campos aparecem travados.</div>`}
@@ -5382,8 +5409,27 @@ function renderRestricoes(){
   wireScreenTabs();
   wireRestricoes();
   restricaoMarcaLongos();
+  restricaoAjustaAltura();
   renderRestricaoIndicadores();
 }
+// a caixa da tabela ocupa o que sobra da janela (do topo dela até o rodapé "Mostrando X de Y"), em vez de
+// uma fração fixa da altura — assim cabem mais linhas em qualquer tamanho de tela. Em "Tela cheia" quem
+// manda é o CSS (body.restricao-foco).
+function restricaoAjustaAltura(){
+  const wrap = document.querySelector('.restricao-wrap');
+  if(!wrap) return;
+  if(RESTRICAO_FOCO){ wrap.style.maxHeight = ''; return; }
+  const topo = wrap.getBoundingClientRect().top + window.scrollY;
+  wrap.style.maxHeight = Math.max(320, window.innerHeight - topo - 56) + 'px';
+}
+window.addEventListener('resize', ()=>{ if(CURRENT_SCREEN==='restricoes') restricaoAjustaAltura(); });
+// Esc sai da "Tela cheia" — mas só se nada mais (edição de célula, menu, filtro) já tratou o Esc
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && !e.defaultPrevented && RESTRICAO_FOCO && CURRENT_SCREEN==='restricoes'
+     && !document.querySelector('.restricao-editing, #restricaoMenu, #restricaoFiltroPop')){
+    RESTRICAO_FOCO = false; render();
+  }
+});
 // redesenha e devolve o foco/cursor pro campo que estava sendo digitado (busca ou filtro)
 function restricaoRedesenhaMantendoFoco(el){
   const id = el.id, pos = el.selectionStart;
@@ -5435,6 +5481,8 @@ function wireRestricoes(){
   });
   const btnLimpar = document.getElementById('btnLimparFiltros');
   if(btnLimpar) btnLimpar.onclick = ()=>{ RESTRICAO_FILTROS = {}; renderRestricoes(); };
+  const btnFoco = document.getElementById('btnFocoGut');
+  if(btnFoco) btnFoco.onclick = ()=>{ RESTRICAO_FOCO = !RESTRICAO_FOCO; render(); };
   const btnImp = document.getElementById('btnImportarGut');
   if(btnImp) btnImp.onclick = restricaoAbreImportacao;
   const btnNova = document.getElementById('btnNovaRestricao');
