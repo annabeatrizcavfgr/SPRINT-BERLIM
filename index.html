@@ -5151,6 +5151,39 @@ function restricaoAbreFiltro(btn, col){
   window.addEventListener('scroll', restricaoFiltroScroll, true);
   busca.focus();
 }
+// Palavra comprida numa coluna estreita (ex.: IMPERMEABILIZAÇÃO) quebra SÓ entre sílabas, com hífen — em vez
+// de partir no meio de uma sílaba. Insere "hífens suaves" (U+00AD, invisíveis, só aparecem se a quebra
+// acontecer) nas fronteiras de sílaba, que são separadas por uma regra simples do português: entre vogais
+// não separa; com uma consoante entre vogais, quebra antes dela; com duas ou mais, quebra antes da última,
+// exceto grupos inseparáveis (br cr dr fr gr pr tr vr bl cl fl gl pl, ch lh nh). Só mexe na EXIBIÇÃO —
+// o texto guardado, a busca e a edição continuam com a palavra original.
+const SILABA_VOGAIS = 'aeiouyáàâãäéèêëíìîïóòôõöúùûü';
+const SILABA_GRUPOS = ['br','cr','dr','fr','gr','pr','tr','vr','bl','cl','fl','gl','pl','ch','lh','nh'];
+function restricaoSilabasPalavra(w){
+  const baixo = w.toLowerCase();
+  const ehV = i=> SILABA_VOGAIS.includes(baixo[i]);
+  const cortes = [];
+  let i = 0;
+  while(i<w.length && !ehV(i)) i++;                 // consoantes iniciais ficam com a 1ª sílaba
+  while(i<w.length){
+    while(i<w.length && ehV(i)) i++;                // grupo de vogais (núcleo)
+    const ini = i;
+    while(i<w.length && !ehV(i)) i++;               // consoantes até a próxima vogal
+    if(i>=w.length) break;                          // consoantes finais ficam com a última sílaba
+    const k = i-ini;
+    if(k===1) cortes.push(ini);
+    else if(k>=2) cortes.push(SILABA_GRUPOS.includes(baixo.slice(i-2, i)) ? i-2 : i-1);
+  }
+  // nunca deixa um pedaço de 1 letra só (nem no começo, nem no fim, nem no meio)
+  let ultimo = 0; const bons = [];
+  cortes.forEach(c=>{ if(c-ultimo>=2 && w.length-c>=2){ bons.push(c); ultimo = c; } });
+  let out = '', pos = 0;
+  bons.forEach(c=>{ out += w.slice(pos, c) + '­'; pos = c; });
+  return out + w.slice(pos);
+}
+function restricaoSilabas(txt){
+  return String(txt==null ? '' : txt).replace(/[A-Za-zÀ-ÿ]{9,}/g, restricaoSilabasPalavra);
+}
 // conteúdo de exibição de uma célula editável (igual na linha normal e no rascunho)
 function restricaoCelulaInner(campo, r){
   switch(campo){
@@ -5163,12 +5196,12 @@ function restricaoCelulaInner(campo, r){
     case 'status': return `<span class="restricao-pill ${restricaoStatusPill(r.status)}">${restricaoStatusLabel(r.status)}</span>`;
     case 'g': case 'u': case 't': return r[campo]!=null ? String(r[campo]) : '—';
     case 'restricao': case 'solucao': {
-      const txt = restricaoEsc(r[campo]);
+      const txt = restricaoEsc(restricaoSilabas(r[campo]));
       if(!txt) return '—';
       if(!r.id) return txt;
       return `<div class="rt-cell"><div class="rt-clamp${RESTRICAO_ABERTAS.has(r.id+'|'+campo)?' aberto':''}">${txt}</div></div>`;
     }
-    default: return restricaoEsc(r[campo]) || '—';
+    default: return restricaoEsc(restricaoSilabas(r[campo])) || '—';
   }
 }
 // botão "+ ver mais" / "− ver menos" nos textos longos — só aparece onde o texto realmente passa de 3
