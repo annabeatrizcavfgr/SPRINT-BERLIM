@@ -952,6 +952,7 @@ const ICON_PATHS = {
   sort:'<path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/>',
   x:'<path d="M6 6l12 12M18 6L6 18"/>',
   calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  download:'<path d="M12 4v12M7.5 11.5L12 16l4.5-4.5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/>',
   expand:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   compress:'<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
 };
@@ -5418,6 +5419,7 @@ function renderRestricoes(){
         </div>
         ${nFiltros ? `<button class="btn" id="btnLimparFiltros" title="Remover os filtros de todas as colunas">✕ Limpar filtros (${nFiltros})</button>` : ''}
         ${auto && !RESTRICAO_DRAFT ? `<button class="btn" id="btnImportarGut" title="Sobe a planilha da GUT (Excel) e ACRESCENTA as restrições novas à matriz, sem trocar nem duplicar o que já existe">${ico('upload')} Importar Excel</button>` : ''}
+        <button class="btn" id="btnExportarGut" title="Baixa a matriz em Excel formatado, pronto pra apresentar (respeita a busca, os filtros e a ordem que estão na tela)">${ico('download')} Exportar Excel</button>
         <button class="btn" id="btnFocoGut" title="${RESTRICAO_FOCO?'Voltar ao layout normal (Esc)':'Esconde o cabeçalho e as abas e usa a janela inteira só pra tabela'}">${ico(RESTRICAO_FOCO?'compress':'expand')} ${RESTRICAO_FOCO?'Sair da tela cheia':'Tela cheia'}</button>
         ${!RESTRICAO_DRAFT ? '<button class="btn btn-primary" id="btnNovaRestricao">+ Nova restrição</button>' : ''}
       </div>
@@ -5519,6 +5521,238 @@ async function restricaoSalvaRascunho(){
   toast('Restrição cadastrada.');
   renderRestricoes();
 }
+/* ---- Exportar a Matriz GUT pra Excel: arquivo formatado, pronto pra apresentar (2026-10-15) ----
+   Usa o ExcelJS (a SheetJS que o app já carrega não grava cores/bordas na versão gratuita) — carregado só
+   na hora de exportar, pra não pesar a abertura do app. Exporta O QUE ESTÁ NA TELA (busca, filtros e
+   ordenação atuais); a aba "Resumo" conta sempre a matriz inteira. */
+const EXCELJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+let EXCELJS_PROMESSA = null;
+function carregaExcelJS(){
+  if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if(!EXCELJS_PROMESSA){
+    EXCELJS_PROMESSA = new Promise((ok, erro)=>{
+      const s = document.createElement('script');
+      s.src = EXCELJS_URL;
+      s.onload = ()=> window.ExcelJS ? ok(window.ExcelJS) : erro(new Error('o gerador de Excel não carregou'));
+      s.onerror = ()=> erro(new Error('sem acesso ao gerador de Excel (verifique a internet)'));
+      document.head.appendChild(s);
+    }).catch(e=>{ EXCELJS_PROMESSA = null; throw e; });
+  }
+  return EXCELJS_PROMESSA;
+}
+// as restrições como aparecem na tela agora (busca + filtros + ordenação)
+function restricaoListaVisivel(){
+  const nq = restricaoNorm(RESTRICAO_SEARCH.trim());
+  return restricaoOrdena(RESTRICOES.map((r,i)=>({...r, item:i+1}))
+    .filter(r=> restricaoPassaBusca(r, nq) && restricaoPassaFiltros(r)));
+}
+function restricaoDataExcel(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');
+  return m ? new Date(Date.UTC(+m[1], +m[2]-1, +m[3])) : null; // UTC: o Excel não desloca o dia por fuso
+}
+function restricaoMontaWorkbook(ExcelJS, lista){
+  const COR = { head:'FF3E4659', borda:'FFD5D9E0', zebra:'FFF6F7F9', texto:'FF25303B', suave:'FF6B7686', branco:'FFFFFFFF' };
+  const FILL = c => ({ type:'pattern', pattern:'solid', fgColor:{argb:c} });
+  const lado = {style:'thin', color:{argb:COR.borda}};
+  const bordas = {top:lado, left:lado, bottom:lado, right:lado};
+  const CLS = {hi:'FFF6A9A4', md:'FFFCDDB8', lo:'FFFFF4D6'};
+  const STATUS = {resolvido:'FF7FD6A2', em_andamento:'FFF5D663', aberto:'FFDDE1E8'};
+  const NIVEL = {'check-in':'FFCFE4FA', 'sprint':'FFE0D4F5', 'medio-prazo':'FFCDEDE6', 'reuniao-diretoria':'FFF8D5DE'};
+  const agora = new Date();
+  const pad = n=>String(n).padStart(2,'0');
+  const quando = `${pad(agora.getDate())}/${pad(agora.getMonth()+1)}/${agora.getFullYear()} às ${pad(agora.getHours())}:${pad(agora.getMinutes())}`;
+  const obra = CURRENT_OBRA_NOME || 'Jardins Berlim';
+  const wb = new ExcelJS.Workbook();
+  wb.creator = obra; wb.created = agora;
+
+  // ===== Aba 1: a matriz =====
+  const colunas = [
+    {t:'Item', w:7, f:r=>r.item},
+    {t:'Nível', w:20, f:r=>restricaoNivelLabel(r.nivel)||null},
+    {t:'Serviço', w:28, txt:true, f:r=>r.servico||null},
+    {t:'Data', w:12, f:r=>restricaoDataExcel(r.data), fmt:'dd/mm/yyyy'},
+    {t:'Dias em\nandamento', w:12, f:r=>restricaoDias(r)},
+    {t:'Responsável', w:17, f:r=>r.eng||null},
+    {t:'Coordenador', w:17, f:r=>r.coordenador||null},
+    {t:'Restrição', w:44, txt:true, f:r=>r.restricao||null},
+    {t:'Observação', w:56, txt:true, f:r=>r.solucao||null},
+    {t:'Data de\nresolução', w:13, f:r=>restricaoDataExcel(r.dataResolucao), fmt:'dd/mm/yyyy'},
+    {t:'Dias em\natraso', w:10, f:r=>{ const a = restricaoAtraso(r); return a>0 ? a : null; }},
+    {t:'Status', w:15, f:r=>restricaoStatusLabel(r.status).toUpperCase()},
+    {t:'G', w:6, f:r=>r.g==null?null:r.g},
+    {t:'U', w:6, f:r=>r.u==null?null:r.u},
+    {t:'T', w:6, f:r=>r.t==null?null:r.t},
+    {t:'Classificação\n(G×U×T)', w:14, f:r=>restricaoCls(r)},
+  ];
+  const N = colunas.length;
+  const ws = wb.addWorksheet('Matriz GUT', {
+    properties:{tabColor:{argb:COR.head}},
+    views:[{state:'frozen', ySplit:4, showGridLines:false}],
+    pageSetup:{orientation:'landscape', paperSize:9, fitToPage:true, fitToWidth:1, fitToHeight:0,
+      margins:{left:0.3, right:0.3, top:0.5, bottom:0.5, header:0.2, footer:0.2}, printTitlesRow:'4:4'},
+  });
+  ws.headerFooter.oddFooter = `&L&8${obra} — Matriz GUT&R&8Página &P de &N`;
+  colunas.forEach((c,i)=>{ ws.getColumn(i+1).width = c.w; });
+
+  ws.mergeCells(1,1,1,N);
+  const titulo = ws.getCell(1,1);
+  titulo.value = `Matriz GUT — ${obra}`;
+  titulo.font = {name:'Calibri', size:18, bold:true, color:{argb:COR.branco}};
+  titulo.fill = FILL(COR.head);
+  titulo.alignment = {vertical:'middle', horizontal:'left', indent:1};
+  ws.getRow(1).height = 34;
+  ws.mergeCells(2,1,2,N);
+  const filtrado = lista.length !== RESTRICOES.length;
+  const sub = ws.getCell(2,1);
+  sub.value = `Emitida em ${quando}  ·  ${lista.length} ${lista.length===1?'restrição':'restrições'}`
+    + (filtrado ? ` (de ${RESTRICOES.length} — filtro/busca aplicado na tela)` : '');
+  sub.font = {name:'Calibri', size:10.5, color:{argb:COR.suave}};
+  sub.alignment = {vertical:'middle', horizontal:'left', indent:1};
+  ws.getRow(2).height = 20;
+  ws.mergeCells(3,1,3,N);
+  const leg = ws.getCell(3,1);
+  leg.value = 'Classificação G×U×T:  Crítica ≥ 64  ·  Atenção 27 a 63  ·  Baixa < 27   |   G = Gravidade · U = Urgência · T = Tendência';
+  leg.font = {name:'Calibri', size:9, italic:true, color:{argb:COR.suave}};
+  leg.alignment = {vertical:'middle', horizontal:'left', indent:1};
+  ws.getRow(3).height = 16;
+
+  const cab = ws.getRow(4);
+  cab.height = 36;
+  colunas.forEach((c,i)=>{
+    const cel = cab.getCell(i+1);
+    cel.value = c.t;
+    cel.font = {name:'Calibri', size:10, bold:true, color:{argb:COR.branco}};
+    cel.fill = FILL(COR.head);
+    cel.alignment = {vertical:'middle', horizontal:'center', wrapText:true};
+    cel.border = bordas;
+  });
+
+  lista.forEach((r, idx)=>{
+    const lin = ws.getRow(5+idx);
+    const atraso = restricaoAtraso(r);
+    let linhasTexto = 1;
+    colunas.forEach((c,i)=>{
+      const cel = lin.getCell(i+1);
+      const v = c.f(r);
+      cel.value = v;
+      if(c.fmt) cel.numFmt = c.fmt;
+      cel.font = {name:'Calibri', size:10, color:{argb:COR.texto}};
+      cel.alignment = {vertical:'middle', horizontal: c.txt ? 'left' : 'center', wrapText:true, indent: c.txt ? 1 : 0};
+      cel.border = bordas;
+      if(idx%2) cel.fill = FILL(COR.zebra);
+      if(c.txt && v){
+        const cpl = Math.max(8, Math.floor(c.w*0.95));
+        const n = String(v).split(/\r?\n/).reduce((s,p)=> s + Math.max(1, Math.ceil(p.length/cpl)), 0);
+        linhasTexto = Math.max(linhasTexto, n);
+      }
+    });
+    // pílulas coloridas (mesmas cores da tela)
+    const pinta = (col, argb, extra)=>{ const cel = lin.getCell(col); cel.fill = FILL(argb); cel.font = Object.assign({}, cel.font, {bold:true}, extra||{}); };
+    if(NIVEL[r.nivel]) pinta(2, NIVEL[r.nivel]);
+    pinta(12, STATUS[restricaoStatusKey(r.status)], {size:9});
+    const cls = restricaoCls(r);
+    if(cls!=null) pinta(16, CLS[restricaoClsKey(cls)], {size:11});
+    [13,14,15].forEach(col=> lin.getCell(col).font = {name:'Calibri', size:10, bold:true, color:{argb:COR.texto}});
+    lin.getCell(1).font = {name:'Calibri', size:10, color:{argb:COR.suave}};
+    if(atraso>0){                                   // prazo vencido: rosa + vermelho, como na tela
+      pinta(10, 'FFFDE6E6', {color:{argb:'FF9B1C14'}});
+      pinta(11, 'FFFDE6E6', {color:{argb:'FF9B1C14'}});
+    }
+    lin.height = Math.min(300, Math.max(22, linhasTexto*13.5 + 8));
+  });
+  if(lista.length){
+    ws.autoFilter = {from:{row:4, column:1}, to:{row:4+lista.length, column:N}};
+  } else {
+    ws.mergeCells(5,1,5,N);
+    const vazio = ws.getCell(5,1);
+    vazio.value = 'Nenhuma restrição para exportar.';
+    vazio.alignment = {horizontal:'center'}; vazio.font = {name:'Calibri', italic:true, color:{argb:COR.suave}};
+  }
+
+  // ===== Aba 2: resumo (sempre a matriz inteira) =====
+  const rs = wb.addWorksheet('Resumo', {properties:{tabColor:{argb:'FF1F4E79'}}, views:[{showGridLines:false}],
+    pageSetup:{orientation:'portrait', paperSize:9, fitToPage:true, fitToWidth:1, fitToHeight:0}});
+  rs.getColumn(1).width = 46; rs.getColumn(2).width = 14;
+  rs.mergeCells(1,1,1,2);
+  const t2 = rs.getCell(1,1);
+  t2.value = `Resumo da Matriz GUT — ${obra}`;
+  t2.font = {name:'Calibri', size:16, bold:true, color:{argb:COR.branco}}; t2.fill = FILL(COR.head);
+  t2.alignment = {vertical:'middle', indent:1}; rs.getRow(1).height = 30;
+  rs.mergeCells(2,1,2,2);
+  const s2 = rs.getCell(2,1);
+  s2.value = `Emitido em ${quando}  ·  considera todas as ${RESTRICOES.length} restrições, independente dos filtros da tela`;
+  s2.font = {name:'Calibri', size:9.5, color:{argb:COR.suave}}; s2.alignment = {vertical:'middle', indent:1, wrapText:true};
+  rs.getRow(2).height = 28;
+  let linha = 4;
+  const secao = (titulo2, linhas, corValor)=>{
+    rs.mergeCells(linha,1,linha,2);
+    const h = rs.getCell(linha,1);
+    h.value = titulo2; h.font = {name:'Calibri', size:11, bold:true, color:{argb:COR.branco}};
+    h.fill = FILL('FF1F4E79'); h.alignment = {vertical:'middle', indent:1}; rs.getRow(linha).height = 22;
+    linha++;
+    linhas.forEach(([rotulo, valor, argb], i)=>{
+      const a = rs.getCell(linha,1), b = rs.getCell(linha,2);
+      a.value = rotulo; b.value = valor;
+      a.font = {name:'Calibri', size:10.5, color:{argb:COR.texto}}; b.font = {name:'Calibri', size:11, bold:true, color:{argb:COR.texto}};
+      a.alignment = {vertical:'middle', indent:1, wrapText:true}; b.alignment = {vertical:'middle', horizontal:'center'};
+      a.border = bordas; b.border = bordas;
+      if(i%2){ a.fill = FILL(COR.zebra); b.fill = FILL(COR.zebra); }
+      if(argb) b.fill = FILL(argb);
+      rs.getRow(linha).height = 20;
+      linha++;
+    });
+    linha++;
+  };
+  const todas = RESTRICOES.map((r,i)=>({...r, item:i+1}));
+  const abertas = todas.filter(r=>r.status!=='resolvido');
+  const atrasadas = abertas.filter(r=>restricaoAtraso(r)>0);
+  secao('Panorama', [
+    ['Total de restrições', todas.length],
+    ['Não iniciadas', todas.filter(r=>restricaoStatusKey(r.status)==='aberto').length, STATUS.aberto],
+    ['Em andamento', todas.filter(r=>r.status==='em_andamento').length, STATUS.em_andamento],
+    ['Resolvidas', todas.filter(r=>r.status==='resolvido').length, STATUS.resolvido],
+    ['Em aberto (não iniciadas + em andamento)', abertas.length],
+    ['Em aberto com prazo vencido (atrasadas)', atrasadas.length, atrasadas.length ? 'FFFDE6E6' : null],
+    ['Em aberto sem data de resolução', abertas.filter(r=>!r.dataResolucao).length],
+  ]);
+  const faixa = k=> abertas.filter(r=>restricaoClsKey(restricaoCls(r))===k).length;
+  secao('Em aberto por classificação G×U×T', [
+    ['Crítica (≥ 64)', faixa('hi'), CLS.hi],
+    ['Atenção (27 a 63)', faixa('md'), CLS.md],
+    ['Baixa (< 27)', faixa('lo'), CLS.lo],
+    ['Sem classificação (faltam G, U ou T)', faixa('none')],
+  ]);
+  const porNivel = RESTRICAO_NIVEIS.map(n=>[n.label, abertas.filter(r=>r.nivel===n.v).length, NIVEL[n.v]]);
+  porNivel.push(['Sem nível', abertas.filter(r=>!RESTRICAO_NIVEIS.some(n=>n.v===r.nivel)).length]);
+  secao('Em aberto por nível', porNivel);
+  const resp = restricaoContagem(abertas, r=>restricaoPessoas(r.eng), 'Sem responsável').slice(0, 15);
+  if(resp.length) secao('Em aberto por responsável', resp.map(x=>[x.label, x.count]));
+  return wb;
+}
+async function restricaoExportaExcel(){
+  const btn = document.getElementById('btnExportarGut');
+  const rotuloOriginal = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Gerando…'; }
+  try{
+    const ExcelJS = await carregaExcelJS();
+    const lista = restricaoListaVisivel();
+    const wb = restricaoMontaWorkbook(ExcelJS, lista);
+    const buf = await wb.xlsx.writeBuffer();
+    const hoje = new Date();
+    const dia = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}-${String(hoje.getDate()).padStart(2,'0')}`;
+    const nome = `Matriz GUT - ${CURRENT_OBRA_NOME || 'Jardins Berlim'} - ${dia}.xlsx`.replace(/[\\/:*?"<>|]/g,'-');
+    const url = URL.createObjectURL(new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+    const a = document.createElement('a');
+    a.href = url; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+    toast(`Matriz exportada: ${lista.length} ${lista.length===1?'restrição':'restrições'}.`);
+  }catch(e){
+    console.error('restricaoExportaExcel', e);
+    toast('Não consegui gerar o Excel: '+(e && e.message ? e.message : e), 'err');
+  }finally{
+    if(btn){ btn.disabled = false; btn.innerHTML = rotuloOriginal; }
+  }
+}
 function wireRestricoes(){
   const search = document.getElementById('restricaoSearch');
   search.addEventListener('input', e=>{ RESTRICAO_SEARCH = e.target.value; RESTRICAO_ZERA_ROLAGEM = true; restricaoRedesenhaMantendoFoco(search); });
@@ -5545,6 +5779,8 @@ function wireRestricoes(){
   });
   const btnLimpar = document.getElementById('btnLimparFiltros');
   if(btnLimpar) btnLimpar.onclick = ()=>{ RESTRICAO_FILTROS = {}; RESTRICAO_ZERA_ROLAGEM = true; renderRestricoes(); };
+  const btnExp = document.getElementById('btnExportarGut');
+  if(btnExp) btnExp.onclick = restricaoExportaExcel;
   const btnFoco = document.getElementById('btnFocoGut');
   if(btnFoco) btnFoco.onclick = ()=>{ RESTRICAO_FOCO = !RESTRICAO_FOCO; render(); };
   const btnImp = document.getElementById('btnImportarGut');
