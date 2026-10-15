@@ -893,12 +893,14 @@ select.inline:disabled{opacity:.55; cursor:default;}
       <input type="file" id="fileInput" accept=".xlsx" hidden>
       <input type="file" id="fileInputMetas" accept=".xlsx" hidden>
       <input type="file" id="fileInputServicos" accept=".xlsx" hidden>
+      <input type="file" id="fileInputProjecao" accept=".xlsx" hidden>
       <button class="btn btn-sm" id="btnExportar" title="Imprimir ou salvar a tela atual em PDF"><span class="ico" data-ico="printer"></span>Exportar</button>
       <div class="menu-wrap" id="maisAcoesWrap">
         <button class="btn btn-sm" id="btnMaisAcoes" data-menu-btn aria-haspopup="true" aria-expanded="false" title="Outras ações"><span class="ico" data-ico="more"></span>Mais ações<span class="ico" data-ico="chevron"></span></button>
         <div class="menu-pop menu-right" hidden role="menu">
           <button class="menu-item" id="btnUploadMetas" title="Previsto do mês — ~1x por mês"><span class="ico" data-ico="target"></span>Enviar metas do mês</button>
           <button class="menu-item" id="btnUploadServicos" title="Detalhe por serviço dentro do pacote — só pra pacotes específicos, ~1x por mês"><span class="ico" data-ico="layers"></span>Enviar serviços do pacote</button>
+          <button class="menu-item" id="btnUploadProjecao" title="Planilha PCP: o que cada coordenador promete entregar na semana, por serviço — toda semana"><span class="ico" data-ico="clipboard"></span>Enviar projeção da semana</button>
           <button class="menu-item" id="btnGerenciarSemanas" title="Excluir planilhas enviadas por engano"><span class="ico" data-ico="trash"></span>Gerenciar planilhas enviadas</button>
           <button class="menu-item" id="btnUsuarios" title="Gerenciar quem pode entrar e editar" style="display:none;"><span class="ico" data-ico="users"></span>Usuários</button>
         </div>
@@ -1763,7 +1765,7 @@ async function fetchMyRole(){
 }
 function updateAuthUi(){
   const isPlan = MY_ROLE === 'planejador';
-  ['btnUpload','btnUploadMetas'].forEach(id=>{
+  ['btnUpload','btnUploadMetas','btnUploadProjecao'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = isPlan ? '' : 'none';
   });
@@ -2413,6 +2415,7 @@ async function initDb(){
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
   RESTRICAO_FILTROS = {}; RESTRICAO_ORDEM = null; RESTRICAO_CONGELA = null; RESTRICAO_IND = {mes:'', escopo:'abertas'};
+  PROJECOES = {};
   META_ROWS = []; META_DATE_REF = null; META_BY_REF = {}; RESTRICAO_ABERTAS = new Set(); RESTRICAO_FOCO = false; RESTRICAO_ZERA_ROLAGEM = true;
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
@@ -2500,6 +2503,7 @@ async function initDb(){
       .map(d=>({ dateRef: d.id, uploadedAt: d.data().uploadedAt, rowCount: (d.data().items||[]).length }))
       .sort((a,b)=>a.dateRef<b.dateRef?-1:1);
     await refreshServicosRows();
+    await loadProjecoes();
     // idempotente e barata — refeita aqui pra já refletir SERVICOS_SEMANA_META (só resolvido agora,
     // depois que a tela de login já chamou updateAuthUi() uma vez sem saber disso ainda).
     updateAuthUi();
@@ -3007,6 +3011,218 @@ function normResp(v){
 function refDateFromCell(v, colType){
   const ord = toOrdCell(v);
   return ord==null ? null : isoFromOrd(ord);
+}
+
+/* ===================================================================
+   PROJEÇÃO DA SEMANA (2026-10-15) — planilha PCP que a obra (Frankfurt) preenche no sprint: o que cada
+   coordenador PROMETE entregar na semana, por serviço. Sempre ligada à SEXTA-FEIRA da semana projetada.
+   Na reunião seguinte compara-se "prometeu X, fez Y". Regras dela: célula em branco = sem projeção (não
+   aparece, NUNCA vira 0); zero digitado = projeção 0 (aparece); sem planilha enviada = a tela fica
+   exatamente como era. Por isso só entram na base as células com número — o que é branco nem é gravado.
+   Colunas lidas: PACOTES, SERVIÇOS e uma coluna "PREVISTO <NOME>" por coordenador; a coluna PCP (soma com
+   fórmula, que dá 0 quando está tudo em branco) é ignorada. Linha com serviço "-" = total do pacote.
+=================================================================== */
+let PROJECOES = {}; // { 'AAAA-MM-DD' (sexta): {dateRef, rawDateRef, fileName, uploadedAt, resps:[...], rows:[{p, s, v:{NOME:n}}]} }
+function projNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim(); }
+function projNumPacote(nome){ const m = /^\s*(\d+)\s*[-–]/.exec(String(nome||'')); return m ? Number(m[1]) : null; }
+function projSemNumero(nome){ return projNorm(String(nome||'').replace(/^\s*\d+\s*[-–]\s*/, '')); }
+// mesmo pacote? pelo número do começo ("36 - ESQUADRIA…" = "36 - ESQUADRIAS…"), senão pelo nome
+function projPacoteIgual(a, b){
+  const na = projNumPacote(a), nb = projNumPacote(b);
+  if(na!=null && nb!=null) return na===nb;
+  return projNorm(a)===projNorm(b) || projSemNumero(a)===projSemNumero(b);
+}
+function projCelula(v){
+  if(v==null) return null;
+  if(typeof v==='number') return Number.isFinite(v) ? v : null;
+  const s = String(v).trim().replace(',', '.');
+  if(s==='' || s==='-') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+function projLePlanilha(grid){
+  let h = -1, colP = -1, colS = -1; const resps = [];
+  for(let i=0;i<Math.min(15, grid.length);i++){
+    const row = grid[i] || [];
+    const norm = row.map(projNorm);
+    const p = norm.findIndex(x=>x==='pacotes' || x==='pacote');
+    const s = norm.findIndex(x=>x==='servicos' || x==='servico');
+    if(p<0 || s<0) continue;
+    h = i; colP = p; colS = s;
+    row.forEach((c,j)=>{
+      const t = String(c==null?'':c).trim();
+      if(/^(previsto|projecao)\s+/.test(projNorm(t))) resps.push({col:j, nome: t.replace(/^\S+\s+/, '').trim().toUpperCase()});
+    });
+    break;
+  }
+  if(h<0) throw new Error('não achei as colunas "PACOTES" e "SERVIÇOS" no cabeçalho da planilha');
+  if(!resps.length) throw new Error('não achei as colunas "PREVISTO <nome>" (uma por coordenador) no cabeçalho');
+  const rows = [];
+  for(let i=h+1;i<grid.length;i++){
+    const row = grid[i] || [];
+    const p = String(row[colP]==null ? '' : row[colP]).trim();
+    if(!p) continue;
+    let s = String(row[colS]==null ? '' : row[colS]).trim();
+    if(s==='-') s = '';                              // "-" = linha do total do pacote
+    const v = {};
+    resps.forEach(r=>{ const n = projCelula(row[r.col]); if(n!=null) v[r.nome] = n; }); // branco não entra; 0 entra
+    if(Object.keys(v).length) rows.push({p, s, v});
+  }
+  return {resps: resps.map(r=>r.nome), rows};
+}
+// sexta-feira "em ou depois" de uma data (a projeção é da semana que vem, não da que passou)
+function projSextaDe(iso){
+  const ord = ordFromIso(iso);
+  const dow = ordToDate(ord).getUTCDay();
+  return isoFromOrd(ord + ((5 - dow + 7) % 7));
+}
+// data embutida no nome do arquivo ("..._SEM12.10 - ...") = dia/mês; ano deduzido pela data de hoje
+function projDataDoNome(nome){
+  const m = /SEM\s*(\d{1,2})[.\-\/](\d{1,2})/i.exec(String(nome||''));
+  const hoje = new Date();
+  if(!m) return hoje.getFullYear()+'-'+String(hoje.getMonth()+1).padStart(2,'0')+'-'+String(hoje.getDate()).padStart(2,'0');
+  const dia = +m[1], mes = +m[2];
+  let ano = hoje.getFullYear();
+  const alvo = new Date(ano, mes-1, dia);
+  if(alvo - hoje > 183*86400000) ano--; else if(hoje - alvo > 183*86400000) ano++;
+  return ano+'-'+String(mes).padStart(2,'0')+'-'+String(dia).padStart(2,'0');
+}
+function confirmProjecaoModal(rawIso, nResumo){
+  return new Promise(resolve=>{
+    const sugerida = projSextaDe(rawIso);
+    openModal(`
+      <h3>Confirme a semana desta projeção</h3>
+      <p>${nResumo}</p>
+      <p>A projeção é sempre ligada à <strong>sexta-feira</strong> da semana projetada. O arquivo indica <strong class="mono">${fmtDate2(rawIso)}</strong> — a que sexta-feira ela se refere?</p>
+      <div class="form-field">
+        <label>Semana da projeção (sexta-feira)</label>
+        <input type="date" id="projWeekInput" value="${sugerida}">
+      </div>
+      <p id="projWeekWarn" style="display:none; color:var(--warn); font-size:12.5px;">${ico('alert')} Essa data não é uma sexta-feira — confirme se é mesmo isso.</p>
+      <div class="modal-actions">
+        <button class="btn" id="projWeekCancel">Cancelar</button>
+        <button class="btn btn-primary" id="projWeekOk">Enviar projeção</button>
+      </div>
+    `);
+    const input = document.getElementById('projWeekInput'), warn = document.getElementById('projWeekWarn');
+    const check = ()=>{ warn.style.display = (input.value && ordToDate(ordFromIso(input.value)).getUTCDay()!==5) ? 'block' : 'none'; };
+    input.addEventListener('change', check); check();
+    document.getElementById('projWeekCancel').onclick = ()=>{ closeModal(); resolve(null); };
+    document.getElementById('projWeekOk').onclick = ()=>{
+      if(!input.value){ toast('Escolha uma data.', 'warn'); return; }
+      closeModal(); resolve(input.value);
+    };
+  });
+}
+async function handleProjecaoWorkbook(file){
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, {type:'array', cellDates:true});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const grid = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+  let lida;
+  try{ lida = projLePlanilha(grid); }
+  catch(e){ toast('Planilha de projeção inválida: '+e.message+'.', 'err'); return; }
+  if(!lida.rows.length){ toast('Nenhuma projeção preenchida nessa planilha (todas as células de projeção estão em branco).', 'warn'); return; }
+  const nValores = lida.rows.reduce((s,r)=>s+Object.keys(r.v).length, 0);
+  const pacotes = [...new Set(lida.rows.map(r=>r.p))];
+  const semMatch = pacotes.filter(p=>!(LOOKUPS.pacotes||[]).some(n=>projPacoteIgual(p, n)));
+  const resumo = `<strong>${nValores}</strong> projeç${nValores===1?'ão':'ões'} preenchida${nValores===1?'':'s'} em <strong>${pacotes.length}</strong> pacote${pacotes.length===1?'':'s'} (${lida.resps.join(', ')}). Células em branco não entram.`
+    + (semMatch.length ? ` <span style="color:var(--warn)">${semMatch.length} pacote(s) da planilha não existem nesta obra e serão ignorados.</span>` : '');
+  const dateRef = await confirmProjecaoModal(projDataDoNome(file.name), resumo);
+  if(!dateRef) return;
+  if(PROJECOES[dateRef]){
+    const ok = await confirmModal({title:'Substituir a projeção dessa semana?', body:'Já existe uma projeção enviada para a semana de <strong class="mono">'+fmtDate2(dateRef)+'</strong>. A nova substitui a antiga por completo.', confirmLabel:'Substituir', danger:true});
+    if(!ok) return;
+  }
+  const doc = {dateRef, rawDateRef: projDataDoNome(file.name), fileName: file.name, uploadedAt: new Date().toISOString(), resps: lida.resps, rows: lida.rows};
+  if(db){
+    try{ await db.doc('projecoes/'+dateRef).set(doc); }
+    catch(e){ console.error('projecao save failed', e); toast('Falha ao salvar a projeção: '+(e && e.message ? e.message : e), 'err'); return; }
+  }
+  PROJECOES[dateRef] = doc;
+  toast('Projeção da semana de '+fmtDate2(dateRef)+' enviada: '+nValores+' valores.');
+  render();
+}
+async function loadProjecoes(){
+  PROJECOES = {};
+  if(!db) return;
+  try{
+    const { docs } = await db.collection('projecoes').get();
+    docs.forEach(d=>{ if(d.data() && Array.isArray(d.data().rows)) PROJECOES[d.id] = d.data(); });
+  }catch(e){ console.error('loadProjecoes failed', e); }
+}
+function projFmt(v){ return Number.isInteger(v) ? String(v) : v.toFixed(1).replace('.', ','); }
+// o que mostrar de projeção para um pacote: projeção da semana ATUAL (sexta seguinte à semana em vista) e/ou o
+// que foi prometido na semana em vista (pra comparar com o realizado). null = nada a mostrar (sem planilha,
+// ou só células em branco) — aí a tela fica exatamente como sempre foi.
+function projecaoDoPacote(pacoteIdx){
+  if(!Object.keys(PROJECOES).length) return null;
+  const nomeApp = (LOOKUPS.pacotes||[])[pacoteIdx];
+  if(nomeApp==null) return null;
+  const ordV = weekOfOrd(TODAY_ORD);
+  const curKey = isoFromOrd(ordV+7), prevKey = isoFromOrd(ordV);
+  const doDoc = k=> PROJECOES[k] ? PROJECOES[k].rows.filter(r=>projPacoteIgual(r.p, nomeApp)) : [];
+  const curRows = doDoc(curKey), prevRows = doDoc(prevKey);
+  if(!curRows.length && !prevRows.length) return null;
+  const entradas = [];                             // uma por (serviço, coordenador), na ordem da planilha
+  const acha = (s, resp)=> entradas.find(e=>e.s===s && e.resp===resp);
+  curRows.forEach(r=> Object.keys(r.v).forEach(resp=> entradas.push({s:r.s, resp, cur:r.v[resp], prev:null})));
+  prevRows.forEach(r=> Object.keys(r.v).forEach(resp=>{
+    const e = acha(r.s, resp);
+    if(e && e.prev==null) e.prev = r.v[resp]; else entradas.push({s:r.s, resp, cur:null, prev:r.v[resp]});
+  }));
+  // pacote (total) primeiro, depois os serviços na ordem da planilha
+  entradas.sort((a,b)=> (a.s===''?0:1)-(b.s===''?0:1));
+  return {entradas, curKey, prevKey, ordV, temCur: curRows.length>0, temPrev: prevRows.length>0};
+}
+function projecaoCardHtml(pacoteIdx){
+  const info = projecaoDoPacote(pacoteIdx);
+  if(!info) return '';
+  const rs = rowsForPacote(pacoteIdx);
+  const respIdxDe = nome=> (LOOKUPS.responsaveis||[]).findIndex(n=>projNorm(n)===projNorm(nome));
+  const realizadoServico = s=>{
+    const sr = SERVICOS_ROWS.find(x=>x.pacoteIdx===pacoteIdx && projNorm(x.etapa)===projNorm(s));
+    const w = sr ? sr.weeks.find(x=>x.weekOrd===info.ordV) : null;
+    return (w && w.realizado!=null) ? w.realizado : null;
+  };
+  const serieDe = (ord, idx)=> weeklySeriesForWeeks(rs, [ord], idx>=0 ? [idx] : null)[0];
+  const linhas = info.entradas.map(e=>{
+    let previsto = null, realizado = null;
+    if(e.s===''){                                  // total do pacote: dá pra comparar com previsto/realizado do app
+      const idx = respIdxDe(e.resp);
+      if(idx>=0){
+        if(info.temCur) previsto = serieDe(info.ordV+7, idx).meta;
+        if(info.temPrev) realizado = serieDe(info.ordV, idx).realizado;
+      }
+    } else if(info.temPrev) realizado = realizadoServico(e.s);
+    return {...e, previsto, realizado};
+  });
+  const cel = v=> v==null ? '<span style="color:var(--text-muted);">—</span>' : projFmt(v);
+  const tomReal = l=> (l.prev!=null && l.realizado!=null) ? (l.realizado>=l.prev ? 'var(--good)' : 'var(--critical)') : 'inherit';
+  const rotCur = fmtDate2(info.curKey), rotPrev = fmtDate2(info.prevKey);
+  const temPrevisto = info.temCur && linhas.some(l=>l.previsto!=null);   // só a linha do pacote tem previsto
+  return `<div class="card" style="margin-bottom:14px;">
+    <h3 class="section-title">Projeção dos coordenadores ${info.temCur?'— semana de '+rotCur:'— prometido em '+rotPrev}</h3>
+    <div style="overflow-x:auto;">
+    <table class="rank-table panel-table">
+      <thead><tr>
+        <th>Serviço</th><th>Coordenador</th>
+        ${temPrevisto ? `<th title="Previsto (meta) da semana — só na linha do pacote">Previsto ${fmtDateShort(info.ordV+7)}</th>` : ''}
+        ${info.temCur ? `<th title="O que o coordenador prometeu entregar nesta semana">Projeção ${fmtDateShort(info.ordV+7)}</th>` : ''}
+        ${info.temPrev ? `<th title="O que foi prometido na semana anterior">Prometido ${fmtDateShort(info.ordV)}</th><th title="O que foi realmente entregue na semana anterior">Realizado ${fmtDateShort(info.ordV)}</th>` : ''}
+      </tr></thead>
+      <tbody>
+        ${linhas.map(l=>`<tr>
+          <td>${l.s===''?'<strong>Pacote (total)</strong>':restricaoEsc(l.s)}</td>
+          <td>${restricaoEsc(l.resp)}</td>
+          ${temPrevisto ? `<td class="num-cell mono">${cel(l.previsto)}</td>` : ''}
+          ${info.temCur ? `<td class="num-cell mono" style="font-weight:700;">${cel(l.cur)}</td>` : ''}
+          ${info.temPrev ? `<td class="num-cell mono">${cel(l.prev)}</td><td class="num-cell mono" style="font-weight:700; color:${tomReal(l)};">${cel(l.realizado)}</td>` : ''}
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>
+  </div>`;
 }
 
 // pergunta a qual "mês" (configurado em Gerenciar meses) a planilha de Serviços do pacote se refere —
@@ -6584,6 +6800,8 @@ function renderExpandedPanel(p){
       ${coordData ? renderCoordCards(coordData) : `<p class="empty-note">${MY_ROLE==='planejador' ? 'Configure um mês em "Mais ações › Gerenciar planilhas enviadas" pra ver a quebra semana a semana por coordenador.' : 'Nenhum mês configurado ainda pra essa obra — peça a um planejador pra configurar.'}</p>`}
     </div>
 
+    ${projecaoCardHtml(pacoteIdx)}
+
     <div class="card" style="margin-bottom:14px;">
       <h3 class="section-title">Previsto × Realizado por semana ${mes?'— '+mes.label:'(últimas 8 semanas)'}</h3>
       ${svgBarWeekly(series)}
@@ -6916,6 +7134,15 @@ function openSnapshotsModal(){
           <button class="btn btn-sm" id="delServicos">Excluir</button>
         </div>` : '<p class="empty-note">Nenhuma planilha de serviços enviada ainda.</p>'}
       </div>
+      ${Object.keys(PROJECOES).length ? `
+      <h4 style="margin:16px 0 6px 0; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em;">Projeção da semana (coordenadores)</h4>
+      <div id="snapProjList" style="max-height:220px; overflow-y:auto;">
+        ${Object.keys(PROJECOES).sort().reverse().map(k=>{ const p = PROJECOES[k]; const n = p.rows.reduce((s,r)=>s+Object.keys(r.v).length, 0); return `
+        <div class="causa-item" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+          <div><strong>Semana de ${fmtDate2(k)}</strong><div class="pkg-meta">${n} projeç${n===1?'ão':'ões'} · enviado em ${new Date(p.uploadedAt).toLocaleString('pt-BR')}</div></div>
+          <button class="btn btn-sm" data-delproj="${k}">Excluir</button>
+        </div>`; }).join('')}
+      </div>` : ''}
       <h4 style="margin:16px 0 6px 0; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em;">Meses de apresentação</h4>
       <p class="pkg-meta" style="margin:0 0 8px 0;">Defina quais semanas (sexta-feira final) compõem o "mês vigente" de vocês — pode não bater com o mês do calendário.</p>
       <div id="mesesList" style="max-height:180px; overflow-y:auto; margin-bottom:14px;">
@@ -6946,6 +7173,20 @@ function openSnapshotsModal(){
     document.getElementById('snapMetasList').scrollTop = metasScrollTop;
     document.getElementById('mesesList').scrollTop = mesesScrollTop;
     document.getElementById('mesesWeeksList').scrollTop = weeksScrollTop;
+    document.querySelectorAll('[data-delproj]').forEach(b=>{
+      b.onclick = async ()=>{
+        const k = b.dataset.delproj;
+        const ok = await confirmModal({title:'Excluir esta projeção?', body:'Isso remove a projeção da semana de <strong class="mono">'+fmtDate2(k)+'</strong>.', confirmLabel:'Excluir', danger:true});
+        if(!ok) return;
+        if(db){
+          try{ await db.doc('projecoes/'+k).delete(); }
+          catch(e){ console.error('delete projecao failed', e); toast('Falha ao excluir: '+(e && e.message ? e.message : e), 'err'); return; }
+        }
+        delete PROJECOES[k];
+        toast('Projeção excluída.');
+        render(); paint();
+      };
+    });
     document.querySelectorAll('[data-delmes]').forEach(b=>{
       b.onclick = async ()=>{
         MESES = MESES.filter(m=>m.id!==b.dataset.delmes);
@@ -7091,6 +7332,14 @@ document.getElementById('fileInputServicos').addEventListener('change', async e=
   e.target.value = '';
   if(!file) return;
   try{ await handleServicosWorkbook(file); }
+  catch(err){ console.error(err); closeModal(); toast('Erro ao processar o arquivo: '+err.message, 'err'); }
+});
+document.getElementById('btnUploadProjecao').addEventListener('click', ()=> document.getElementById('fileInputProjecao').click());
+document.getElementById('fileInputProjecao').addEventListener('change', async e=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  try{ await handleProjecaoWorkbook(file); }
   catch(err){ console.error(err); closeModal(); toast('Erro ao processar o arquivo: '+err.message, 'err'); }
 });
 document.getElementById('btnUploadMetas').addEventListener('click', ()=> document.getElementById('fileInputMetas').click());
