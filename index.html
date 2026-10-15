@@ -1034,6 +1034,7 @@ let META_DATE_REF = null;
 let META_BY_REF = {};
 let RESTRICAO_ABERTAS = new Set();  // textos longos da Matriz GUT abertos no "+" ("<id>|<campo>")
 let RESTRICAO_FOCO = false;         // Matriz GUT em "Tela cheia" (só a tabela, ver body.restricao-foco)
+let RESTRICAO_ZERA_ROLAGEM = false; // true = o próximo desenho da Matriz volta a tabela pro topo (filtro/busca/ordem/linha nova); editar NÃO zera
 let METAS_META = [];               // [{dateRef, uploadedAt, rowCount, chunkCount}] asc
 let METAS_STATE_DOC = { dateRefs: [], latest: null, previous: null };
 let CAUSAS = [];                   // [{id, pacoteIdx, semanaLabel, weekOrd, causaId, obs, ts}]
@@ -2411,7 +2412,7 @@ async function initDb(){
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
   RESTRICAO_FILTROS = {}; RESTRICAO_ORDEM = null; RESTRICAO_CONGELA = null; RESTRICAO_IND = {mes:'', escopo:'abertas'};
-  META_ROWS = []; META_DATE_REF = null; META_BY_REF = {}; RESTRICAO_ABERTAS = new Set(); RESTRICAO_FOCO = false;
+  META_ROWS = []; META_DATE_REF = null; META_BY_REF = {}; RESTRICAO_ABERTAS = new Set(); RESTRICAO_FOCO = false; RESTRICAO_ZERA_ROLAGEM = true;
   try{
     const [lk, st, mz, mst, qf, sv, up, msvg] = await Promise.all([
       db.doc('meta/lookups').get(),
@@ -5126,13 +5127,15 @@ function restricaoAbreFiltro(btn, col){
       const dir = b.dataset.ord;
       RESTRICAO_CONGELA = null;
       RESTRICAO_ORDEM = (ordAtual===dir) ? null : {k: col.k, dir}; // clicar na que já está ativa desliga
+      RESTRICAO_ZERA_ROLAGEM = true;
       restricaoFechaFiltro();
       renderRestricoes();
     };
   });
   pop.querySelector('#rfpCancelar').onclick = restricaoFechaFiltro;
-  pop.querySelector('#rfpLimpar').onclick = ()=>{ delete RESTRICAO_FILTROS[col.k]; restricaoFechaFiltro(); renderRestricoes(); };
+  pop.querySelector('#rfpLimpar').onclick = ()=>{ delete RESTRICAO_FILTROS[col.k]; RESTRICAO_ZERA_ROLAGEM = true; restricaoFechaFiltro(); renderRestricoes(); };
   ok.onclick = ()=>{
+    RESTRICAO_ZERA_ROLAGEM = true;
     // com pesquisa digitada vale só o que está visível e marcado (igual ao Excel)
     const escolhidos = (busca.value.trim() ? visiveis() : itens).filter(i=>sel.has(i.k)).map(i=>i.k);
     const final = escolhidos.concat(fora);
@@ -5390,6 +5393,11 @@ function restricaoRascunhoNovo(){
 function renderRestricoes(){
   restricaoFechaMenu();
   restricaoFechaFiltro();
+  // editar uma célula redesenha a tela toda — guarda a rolagem da tabela (e da página) pra devolver depois,
+  // senão a lista voltava pro topo a cada edição
+  const wrapAntes = document.querySelector('.restricao-wrap');
+  const rolagem = (wrapAntes && !RESTRICAO_ZERA_ROLAGEM) ? {t: wrapAntes.scrollTop, l: wrapAntes.scrollLeft, y: window.scrollY} : null;
+  RESTRICAO_ZERA_ROLAGEM = false;
   const nq = restricaoNorm(RESTRICAO_SEARCH.trim());
   const list = restricaoOrdena(RESTRICOES
     .map((r,i)=>({...r, item:i+1}))
@@ -5460,6 +5468,12 @@ function renderRestricoes(){
   restricaoMarcaLongos();
   restricaoAjustaAltura();
   renderRestricaoIndicadores();
+  // depois dos indicadores: com a página ainda curta o navegador limitava a rolagem e ela voltava mais pra cima
+  if(rolagem){
+    const wrapNovo = document.querySelector('.restricao-wrap');
+    if(wrapNovo){ wrapNovo.scrollTop = rolagem.t; wrapNovo.scrollLeft = rolagem.l; }
+    window.scrollTo(0, rolagem.y);
+  }
 }
 // a caixa da tabela ocupa o que sobra da janela (do topo dela até o rodapé "Mostrando X de Y"), em vez de
 // uma fração fixa da altura — assim cabem mais linhas em qualquer tamanho de tela. Em "Tela cheia" quem
@@ -5507,7 +5521,7 @@ async function restricaoSalvaRascunho(){
 }
 function wireRestricoes(){
   const search = document.getElementById('restricaoSearch');
-  search.addEventListener('input', e=>{ RESTRICAO_SEARCH = e.target.value; restricaoRedesenhaMantendoFoco(search); });
+  search.addEventListener('input', e=>{ RESTRICAO_SEARCH = e.target.value; RESTRICAO_ZERA_ROLAGEM = true; restricaoRedesenhaMantendoFoco(search); });
   document.querySelectorAll('[data-rfbtn]').forEach(b=>{
     b.addEventListener('click', e=>{
       e.stopPropagation();
@@ -5525,11 +5539,12 @@ function wireRestricoes(){
       if(!RESTRICAO_ORDEM || RESTRICAO_ORDEM.k!==k) RESTRICAO_ORDEM = {k, dir:primeiro};
       else if(RESTRICAO_ORDEM.dir===primeiro) RESTRICAO_ORDEM = {k, dir: primeiro==='asc' ? 'desc' : 'asc'};
       else RESTRICAO_ORDEM = null;
+      RESTRICAO_ZERA_ROLAGEM = true;
       renderRestricoes();
     });
   });
   const btnLimpar = document.getElementById('btnLimparFiltros');
-  if(btnLimpar) btnLimpar.onclick = ()=>{ RESTRICAO_FILTROS = {}; renderRestricoes(); };
+  if(btnLimpar) btnLimpar.onclick = ()=>{ RESTRICAO_FILTROS = {}; RESTRICAO_ZERA_ROLAGEM = true; renderRestricoes(); };
   const btnFoco = document.getElementById('btnFocoGut');
   if(btnFoco) btnFoco.onclick = ()=>{ RESTRICAO_FOCO = !RESTRICAO_FOCO; render(); };
   const btnImp = document.getElementById('btnImportarGut');
@@ -5544,6 +5559,7 @@ function wireRestricoes(){
     RESTRICAO_COLW = larguras.map(w=>Math.floor(w*k*10)/10);
     RESTRICAO_DRAFT = restricaoRascunhoNovo();
     RESTRICAO_DRAFT_FOCUS = true;
+    RESTRICAO_ZERA_ROLAGEM = true; // a linha nova aparece no topo da tabela
     renderRestricoes();
   };
   // linha nova (rascunho)
