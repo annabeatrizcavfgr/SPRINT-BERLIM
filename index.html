@@ -1117,6 +1117,7 @@ let CUSTOM_ORDER = []; // nomes de pacote na ordem manual escolhida
 let EXPANDED_IDX = null;   // pacote com o painel semana-a-semana aberto (accordion — só um por vez)
 let DETAILS_OPEN = false;  // "+ Detalhes" dentro do pacote expandido
 let SERVICOS_OPEN = false; // "+ Detalhe serviços" dentro do pacote expandido — só abre se ela pedir
+let PROJECAO_OPEN = false; // "+ Projeção da semana" (card da planilha PCP) — também só abre se ela pedir
 // colunas ocultas na tabela do Painel gerencial (pra apresentações mais enxutas) — array de ids de
 // PAINEL_COL_DEFS; vazio = mostra todas. "Pacote" nunca é ocultável (é a identidade da linha).
 let PAINEL_HIDDEN_COLS = [];
@@ -5077,7 +5078,7 @@ function wireScreenTabs(){
       if(b.dataset.tab===CURRENT_SCREEN) return;
       CURRENT_SCREEN = b.dataset.tab; saveUiPrefs();
       // sem accordion fora da Visão geral — evita o mapa ficar preso seguindo um pacote que já não está mais "aberto"
-      EXPANDED_IDX = null; DETAILS_OPEN = false; SERVICOS_OPEN = false;
+      EXPANDED_IDX = null; DETAILS_OPEN = false; SERVICOS_OPEN = false; PROJECAO_OPEN = false;
       // trocar de TELA é navegação de verdade — reseta o zoom/posição do mapa (diferente de um filtro/
       // mês/ordenação mudar dentro da mesma tela, que agora preserva — ver ensureMapaMounted)
       MAPA_VIEW = {scale:1, x:0, y:0};
@@ -6471,7 +6472,7 @@ function renderGeral(){
   document.getElementById('focoPacoteSelect').addEventListener('change', e=>{
     FOCO_PACOTE_IDX = e.target.value===''?null:parseInt(e.target.value,10);
     saveUiPrefs();
-    EXPANDED_IDX = FOCO_PACOTE_IDX; DETAILS_OPEN = false; SERVICOS_OPEN = false;
+    EXPANDED_IDX = FOCO_PACOTE_IDX; DETAILS_OPEN = false; SERVICOS_OPEN = false; PROJECAO_OPEN = false;
     const searchEl = document.getElementById('pkgSearch');
     searchEl.disabled = FOCO_PACOTE_IDX!=null;
     searchEl.style.display = FOCO_PACOTE_IDX!=null ? 'none' : '';
@@ -6549,7 +6550,7 @@ function renderGeral(){
       const activate = ()=>{
         const idx = parseInt(tr.dataset.idx,10);
         EXPANDED_IDX = (EXPANDED_IDX===idx) ? null : idx;
-        DETAILS_OPEN = false; SERVICOS_OPEN = false;
+        DETAILS_OPEN = false; SERVICOS_OPEN = false; PROJECAO_OPEN = false;
         paintTable(document.getElementById('pkgSearch').value);
         syncMapaWithExpanded();
       };
@@ -6792,6 +6793,7 @@ function renderExpandedPanel(p){
   const resp = responsavelBreakdown(pacoteIdx);
   const freq = causasFreq(pacoteIdx);
   const hasServicos = SERVICOS_ROWS.some(r=>r.pacoteIdx===pacoteIdx);
+  const temProjecao = !!projecaoDoPacote(pacoteIdx); // sem projeção enviada pra esse pacote, não aparece nada
   const weeksOpts = []; for(let i=0;i<6;i++) weeksOpts.push(weekOfOrd(TODAY_ORD - i*7));
   return `
   <div class="expand-panel">
@@ -6800,12 +6802,15 @@ function renderExpandedPanel(p){
       ${coordData ? renderCoordCards(coordData) : `<p class="empty-note">${MY_ROLE==='planejador' ? 'Configure um mês em "Mais ações › Gerenciar planilhas enviadas" pra ver a quebra semana a semana por coordenador.' : 'Nenhum mês configurado ainda pra essa obra — peça a um planejador pra configurar.'}</p>`}
     </div>
 
-    ${projecaoCardHtml(pacoteIdx)}
-
     <div class="card" style="margin-bottom:14px;">
       <h3 class="section-title">Previsto × Realizado por semana ${mes?'— '+mes.label:'(últimas 8 semanas)'}</h3>
       ${svgBarWeekly(series)}
     </div>
+
+    ${temProjecao ? `
+    <button class="btn btn-sm" id="expToggleProjecao" data-idx="${pacoteIdx}" style="margin-bottom:14px; margin-right:8px;">${PROJECAO_OPEN?'− Ocultar projeção':'+ Projeção da semana'}</button>
+    ${PROJECAO_OPEN ? projecaoCardHtml(pacoteIdx) : ''}
+    ` : ''}
 
     ${hasServicos ? `
     <button class="btn btn-sm" id="expToggleServicos" data-idx="${pacoteIdx}" style="margin-bottom:14px;">${SERVICOS_OPEN?'− Ocultar detalhe serviços':'+ Detalhe serviços'}</button>
@@ -6929,6 +6934,10 @@ function wireExpandedPanel(wrap){
   const detBtn = wrap.querySelector('#expToggleDetalhes');
   if(detBtn){
     detBtn.onclick = ()=>{ DETAILS_OPEN = !DETAILS_OPEN; document.getElementById('pkgSearch').dispatchEvent(new Event('input')); };
+  }
+  const projBtn = wrap.querySelector('#expToggleProjecao');
+  if(projBtn){
+    projBtn.onclick = ()=>{ PROJECAO_OPEN = !PROJECAO_OPEN; document.getElementById('pkgSearch').dispatchEvent(new Event('input')); };
   }
   const servBtn = wrap.querySelector('#expToggleServicos');
   if(servBtn){
