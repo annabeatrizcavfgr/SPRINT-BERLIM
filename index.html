@@ -2197,7 +2197,25 @@ async function initAuth(){
     if(!cfg.url || !cfg.anonKey) return true;
   }catch(e){ return true; }
   if(typeof supabase==='undefined' || !supabase.createClient) return true;
-  AUTH = supabase.createClient(cfg.url, cfg.anonKey);
+  // 2026-10-27: o login passou a dar "Failed to fetch" pra várias pessoas ao mesmo tempo — o site (vercel.app)
+  // abria normal, mas o navegador não conseguia falar direto com <projeto>.supabase.co (bloqueio/instabilidade
+  // de rede). Agora o navegador fala com o PRÓPRIO site (/supabase/..., repassado pela Vercel — ver
+  // vercel.json), que é o mesmo endereço que já está funcionando. Testa o caminho antes de usar e, se ele não
+  // responder (ex.: rodando local, sem a regra de repasse), cai no endereço direto como era antes.
+  // storageKey fixo = a mesma chave que o Supabase já usava, pra ninguém ser deslogado por causa da troca.
+  let urlAuth = cfg.url;
+  try{
+    const viaSite = location.origin + '/supabase';
+    const ctl = new AbortController();
+    const t = setTimeout(()=>ctl.abort(), 6000);
+    const r = await fetch(viaSite + '/auth/v1/health', { headers: { apikey: cfg.anonKey }, signal: ctl.signal });
+    clearTimeout(t);
+    const j = r.ok ? await r.json() : null;
+    if(j && j.name==='GoTrue') urlAuth = viaSite;
+  }catch(e){ /* sem o caminho pelo site: segue direto */ }
+  let storageKey;
+  try{ storageKey = 'sb-' + new URL(cfg.url).hostname.split('.')[0] + '-auth-token'; }catch(e){}
+  AUTH = supabase.createClient(urlAuth, cfg.anonKey, storageKey ? { auth: { storageKey } } : undefined);
   // link de "esqueci minha senha" (2026-09-17): o Supabase manda a pessoa de volta pra essa mesma URL
   // com "#access_token=...&type=recovery" no fragmento, JÁ autenticada numa sessão temporária - se
   // checássemos só "tem sessão?" como no fluxo normal abaixo, ela cairia direto no app (bypassando a
