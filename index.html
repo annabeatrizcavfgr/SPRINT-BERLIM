@@ -6477,8 +6477,7 @@ function renderGeral(){
           <select class="inline" id="sortMode">${Object.keys(SORT_LABELS).map(k=>`<option value="${k}" ${k===SORT_MODE?'selected':''}>${SORT_LABELS[k]}</option>`).join('')}</select>
         </div>
         <div class="foco-row" style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-          <label style="font-size:12px; color:var(--text-muted); white-space:nowrap;" title="Segue a mesma ordem escolhida no menu de ordenar ao lado (Maior desvio, Nome A-Z, ordem manual, etc)">Pacote (reunião):</label>
-          <select class="inline" id="focoPacoteSelect" style="flex:1;">
+          <select class="inline" id="focoPacoteSelect" style="flex:1;" aria-label="Pacote em foco" title="Pacote em foco — a lista segue a mesma ordem escolhida no menu de ordenar (Maior desvio, Nome A-Z, ordem manual, etc)">
             ${orderedNamesForCurrentSort().map(name=>{ const idx = LOOKUPS.pacotes.indexOf(name); return `<option value="${idx}" ${FOCO_PACOTE_IDX===idx?'selected':''}>${name}</option>`; }).join('')}
           </select>
           <button class="btn btn-sm" id="btnPresentation" title="Oculta os controles extras — fica só o título, este filtro (fixo no topo) e o pacote em foco">${PRESENTATION_MODE?ico('x')+' Sair da apresentação':ico('monitor')+' Modo apresentação'}</button>
