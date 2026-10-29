@@ -12,7 +12,7 @@
 // completo no Supabase Auth (auth.admin.deleteUser) se essa era a UNICA obra em que ela tinha
 // registro; se ela ainda participa de outra(s), so a linha desta obra e removida e o login continua
 // valido pras outras (senao, excluir alguem de uma obra a expulsaria de todas as outras tambem).
-import { supabaseAdmin, getAuthedUser, getUserRoleStatus } from '../lib/supabaseAuth.js';
+import { supabaseAdmin, getAuthedUser, getUserRoleStatus, authCompartilhada } from '../lib/supabaseAuth.js';
 
 // PAPEIS (2026-10-05): planejador, coordenador (autonomia total so na matriz G.U.T) e visualizador (ver
 // tudo, editar a observacao das restricoes e criar restricoes no nivel check-in). A coluna `role` da
@@ -46,8 +46,19 @@ export default async function handler(req, res) {
         // tela Usuários — se der qualquer problema pra buscar, a lista sai igual, só sem os nomes.
         const nomes = {};
         try {
-          const { data: lista } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-          ((lista && lista.users) || []).forEach((u) => { nomes[u.id] = (u.user_metadata && u.user_metadata.full_name) || ''; });
+          if (authCompartilhada()) {
+            // Hydra: o login é de TODOS os apps da FGR — não lista a base inteira, só consulta quem está nesta obra.
+            await Promise.all((data || []).map(async (u) => {
+              try {
+                const { data: r } = await admin.auth.admin.getUserById(u.user_id);
+                const m = (r && r.user && r.user.user_metadata) || {};
+                nomes[u.user_id] = m.full_name || m.name || '';
+              } catch (e) { /* só enfeite */ }
+            }));
+          } else {
+            const { data: lista } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+            ((lista && lista.users) || []).forEach((u) => { nomes[u.id] = (u.user_metadata && u.user_metadata.full_name) || ''; });
+          }
         } catch (e) { console.error('api/role: nomes indisponiveis', e); }
         return res.status(200).json({ users: (data || []).map((u) => ({ ...u, nome: nomes[u.user_id] || '' })), myEmail: user.email });
       }
@@ -104,7 +115,9 @@ export default async function handler(req, res) {
       const { data: existing } = await admin.from('user_roles').select('user_id').eq('email', email).eq('obra_id', obraId).maybeSingle();
       if (!existing) return res.status(404).json({ error: 'essa pessoa nao esta cadastrada nessa obra' });
       const { count: outrasObras } = await admin.from('user_roles').select('obra_id', { count: 'exact', head: true }).eq('user_id', existing.user_id);
-      if (outrasObras <= 1) {
+      // Hydra (login compartilhado com outros apps da FGR): NUNCA apaga o login — só tira o acesso a esta obra. Quem
+      // entrar de novo cai como "pendente" (sem ver nada) até um planejador aprovar.
+      if (outrasObras <= 1 && !authCompartilhada()) {
         // ultima (ou unica) obra dela - bloqueia o login dela por completo, nao so o acesso a essa obra
         const { error: authError } = await admin.auth.admin.deleteUser(existing.user_id);
         if (authError) throw authError;

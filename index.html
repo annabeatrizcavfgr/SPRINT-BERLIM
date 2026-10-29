@@ -3,8 +3,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- tipografia padrão do ecossistema Microsoft 365/SharePoint — Segoe UI é fonte de sistema (Windows),
      não fica no Google Fonts, então não há <link> pra carregar; --font-* já cai direto no stack nativo -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<!-- Bibliotecas: primeiro do PRÓPRIO app (/vendor/..., servido pelo server.js a partir do node_modules — no Hydra a
+     rede da FGR pode bloquear CDN); se o arquivo local não existir (ex.: Vercel), cai no CDN, mesmas versões. -->
+<script src="/vendor/xlsx.full.min.js"></script>
+<script>if(typeof XLSX==='undefined') document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
+<script src="/vendor/supabase.js"></script>
+<script>if(typeof supabase==='undefined') document.write('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"><\/script>');</script>
 <!-- Montserrat nos títulos e Inter no texto (tela de entrada e, desde 2026-10-05, o app todo — mesma
      identidade do app "Gestão e Controle de Obra" dela); se a rede bloquear o Google Fonts, cai nas
      fontes de sistema sem quebrar nada -->
@@ -1825,6 +1829,9 @@ function updateAuthUi(){
    do projeto, servidos pela Vercel como o /frankfurt-map.svg). */
 const AUTH_EMAIL_KEY = 'jb_last_email';
 const AUTH_KEEP_KEY = 'jb_keep';
+let AUTH_OAUTH = null;               // 'azure' = mostra "Entrar com Microsoft" (vem de /api/config; vazio na Vercel)
+let AUTH_OAUTH_ONLY = false;         // true = só o botão da Microsoft (sem e-mail/senha)
+let AUTH_LOGIN_COMPARTILHADO = false; // true = o login é de TODOS os apps da FGR (Hydra): excluir pessoa só tira o acesso a esta obra
 function authEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function authEmailOk(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 function authBusy(btn, txt){ btn.disabled = true; btn.dataset.t = btn.textContent; btn.textContent = txt; }
@@ -1869,9 +1876,26 @@ function authGuardaPreferencia(email, manter){
   }catch(e){}
   if(!manter) document.cookie = 'jb_alive=1; path=/; SameSite=Lax';
 }
+// login corporativo (Hydra): leva pra tela de login da Microsoft e volta pro app já com a sessão do Supabase Auth
+async function entrarComProvedor(){
+  const btn = document.getElementById('btnMicrosoft');
+  if(btn) authBusy(btn, 'Abrindo a Microsoft…');
+  authMsg('');
+  const { error } = await AUTH.auth.signInWithOAuth({ provider: AUTH_OAUTH, options: { redirectTo: location.origin + '/', scopes: 'email' } });
+  if(error){ if(btn) authFree(btn); authMsg(traduzErroAuth(error)); }
+}
 function showLoginScreen(msg, tipo){
-  authCardOpen(`
+  const soMicrosoft = !!(AUTH_OAUTH && AUTH_OAUTH_ONLY);
+  const botaoMicrosoft = AUTH_OAUTH ? `
+    <button class="au-btn" id="btnMicrosoft" type="button">Entrar com a conta Microsoft da FGR</button>
+    ${soMicrosoft ? '' : '<p class="au-note" style="margin:10px 0 14px;">ou entre com e-mail e senha</p>'}` : '';
+  authCardOpen(soMicrosoft ? `
     <h2>Entrar</h2>
+    ${botaoMicrosoft}
+    <p class="au-note">Use o mesmo e-mail e senha que você usa no computador da FGR.</p>
+  ` : `
+    <h2>Entrar</h2>
+    ${botaoMicrosoft}
     <label class="au-f"><span>E-mail corporativo</span><input type="email" id="loginEmail" placeholder="nome@fgr.com.br" autocomplete="username" value="${authEsc(authUltimoEmail())}"></label>
     <label class="au-f"><span>Senha</span><input type="password" id="loginSenha" placeholder="Sua senha" autocomplete="current-password"></label>
     <label class="au-chk"><input type="checkbox" id="loginKeep" checked>Manter conectado neste computador</label>
@@ -1879,6 +1903,8 @@ function showLoginScreen(msg, tipo){
     <button class="au-link blue" id="linkEsqueciSenha" type="button">Esqueci minha senha</button>
     <button class="au-link red" id="linkCriarConta" type="button">Ainda não tenho acesso — criar conta</button>
   `, msg, tipo);
+  if(AUTH_OAUTH) document.getElementById('btnMicrosoft').onclick = entrarComProvedor;
+  if(soMicrosoft) return; // sem campos de e-mail/senha pra ligar
   const emailEl = document.getElementById('loginEmail'), senhaEl = document.getElementById('loginSenha');
   setTimeout(()=>(emailEl.value ? senhaEl : emailEl).focus(), 50);
   const entrar = async ()=>{
@@ -2203,6 +2229,8 @@ async function initAuth(){
   // vercel.json), que é o mesmo endereço que já está funcionando. Testa o caminho antes de usar e, se ele não
   // responder (ex.: rodando local, sem a regra de repasse), cai no endereço direto como era antes.
   // storageKey fixo = a mesma chave que o Supabase já usava, pra ninguém ser deslogado por causa da troca.
+  // Hydra: o servidor diz se o login é pela conta Microsoft da FGR e se o login é compartilhado com outros apps
+  AUTH_OAUTH = cfg.oauth || null; AUTH_OAUTH_ONLY = !!cfg.oauthOnly; AUTH_LOGIN_COMPARTILHADO = !!cfg.loginCompartilhado;
   let urlAuth = cfg.url;
   try{
     const viaSite = location.origin + '/supabase';
@@ -2240,7 +2268,14 @@ async function initAuth(){
     CURRENT_USER = session.user;
     return await resolveObra();
   }
-  showLoginScreen();
+  // volta do login Microsoft com erro (ex.: conta sem permissão): o Supabase devolve "#error_description=..." na URL
+  let msgHash = '';
+  try{
+    const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+    if(h.get('error_description')) msgHash = 'Não foi possível entrar com a conta Microsoft: ' + decodeURIComponent(h.get('error_description').replace(/\+/g, ' '));
+    if(msgHash) history.replaceState(null, '', location.pathname + location.search);
+  }catch(e){}
+  showLoginScreen(msgHash || undefined);
   return false;
 }
 async function openUsersModal(){
@@ -2281,7 +2316,7 @@ async function openUsersModal(){
   }
   function rowActionsHtml(u){
     if(u.email===(CURRENT_USER && CURRENT_USER.email)) return '';
-    return `<button class="btn btn-sm" data-excluir="${u.email}" title="Bloqueia o acesso dela por completo — apaga o login, não só o papel">Excluir</button>`;
+    return `<button class="btn btn-sm" data-excluir="${u.email}" title="${AUTH_LOGIN_COMPARTILHADO ? 'Tira o acesso dela a esta obra (o login Microsoft dela não é apagado)' : 'Bloqueia o acesso dela por completo — apaga o login, não só o papel'}">Excluir</button>`;
   }
   function paint(){
     const pendentes = users.filter(u=>u.status!=='approved');
@@ -2364,7 +2399,9 @@ async function openUsersModal(){
         const email = btn.dataset.excluir;
         const ok = await confirmModal({
           title: 'Excluir '+email+'?',
-          body: 'Isso apaga o login dela por completo — ela não consegue mais entrar com a senha antiga. Se tentar de novo, precisa criar uma conta nova (e cai como pendente, esperando aprovação de novo).',
+          body: AUTH_LOGIN_COMPARTILHADO
+            ? 'Isso tira o acesso dela a esta obra. O login Microsoft dela não é apagado (ele é de todos os apps da FGR). Se ela entrar de novo, cai como pendente, esperando aprovação.'
+            : 'Isso apaga o login dela por completo — ela não consegue mais entrar com a senha antiga. Se tentar de novo, precisa criar uma conta nova (e cai como pendente, esperando aprovação de novo).',
           confirmLabel: 'Excluir', danger: true
         });
         if(!ok) return;
@@ -5764,13 +5801,16 @@ let EXCELJS_PROMESSA = null;
 function carregaExcelJS(){
   if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
   if(!EXCELJS_PROMESSA){
-    EXCELJS_PROMESSA = new Promise((ok, erro)=>{
+    // tenta o arquivo do próprio app primeiro (Hydra) e só depois o CDN (Vercel / arquivo local ausente)
+    const tenta = url => new Promise((ok, erro)=>{
       const s = document.createElement('script');
-      s.src = EXCELJS_URL;
+      s.src = url;
       s.onload = ()=> window.ExcelJS ? ok(window.ExcelJS) : erro(new Error('o gerador de Excel não carregou'));
       s.onerror = ()=> erro(new Error('sem acesso ao gerador de Excel (verifique a internet)'));
       document.head.appendChild(s);
-    }).catch(e=>{ EXCELJS_PROMESSA = null; throw e; });
+    });
+    EXCELJS_PROMESSA = tenta('/vendor/exceljs.min.js').catch(()=> tenta(EXCELJS_URL))
+      .catch(e=>{ EXCELJS_PROMESSA = null; throw e; });
   }
   return EXCELJS_PROMESSA;
 }
