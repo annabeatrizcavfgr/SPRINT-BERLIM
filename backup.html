@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backup e restauração</title>
+<!-- Página de manutenção (só planejador): baixa um backup COMPLETO dos dados do app num arquivo e restaura esse arquivo
+     em outro servidor — usada na migração Vercel/Supabase cloud -> Hydra. Usa a sessão de quem já está logado no app
+     (mesmo endereço), então abra o app, entre normalmente e depois abra /backup.html. -->
+<script src="/vendor/supabase.js"></script>
+<script>if(typeof supabase==='undefined') document.write('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"><\/script>');</script>
+<style>
+  body{font-family:Inter,"Segoe UI",system-ui,sans-serif;background:#f4f4f2;color:#1b2430;margin:0;padding:24px;}
+  main{max-width:760px;margin:0 auto;}
+  h1{font-size:22px;margin:0 0 4px;} p{line-height:1.5;color:#46505e;}
+  .card{background:#fff;border:1px solid #e1e3e8;border-radius:12px;padding:18px 20px;margin:16px 0;}
+  h2{font-size:16px;margin:0 0 8px;}
+  button{font:inherit;font-weight:600;padding:9px 16px;border-radius:8px;border:1px solid #9F1814;background:#9F1814;color:#fff;cursor:pointer;}
+  button:disabled{opacity:.5;cursor:default;}
+  button.sec{background:#fff;color:#1b2430;border-color:#c9ced6;}
+  #log{white-space:pre-wrap;font-family:Consolas,monospace;font-size:12.5px;background:#0f1722;color:#d6e2f0;border-radius:8px;padding:12px;min-height:60px;max-height:260px;overflow:auto;margin-top:12px;}
+  .aviso{background:#fff4d6;border:1px solid #f0d58a;border-radius:8px;padding:10px 12px;font-size:13.5px;}
+  code{background:#eef0f3;padding:1px 5px;border-radius:4px;}
+</style>
+</head>
+<body>
+<main>
+  <h1>Backup e restauração dos dados</h1>
+  <p id="onde"></p>
+  <div id="estado" class="aviso">Verificando seu login…</div>
+
+  <div class="card">
+    <h2>1. Baixar backup deste servidor</h2>
+    <p>Gera um arquivo <code>.json</code> com <strong>tudo</strong>: obras, usuários e papéis, e todos os documentos (semanas, metas, restrições da Matriz GUT, projeções…). Não altera nada aqui. Só planejador.</p>
+    <button id="btnBaixar" disabled>Baixar backup</button>
+  </div>
+
+  <div class="card">
+    <h2>2. Restaurar um backup neste servidor</h2>
+    <p>Lê um arquivo de backup e grava os dados <strong>neste servidor</strong> (<span id="host"></span>). Quem já existe com o mesmo identificador é atualizado; nada é apagado. Pode repetir sem duplicar.</p>
+    <input type="file" id="arquivo" accept=".json,application/json">
+    <p><button id="btnRestaurar" class="sec" disabled>Restaurar</button></p>
+  </div>
+
+  <div id="log" aria-live="polite"></div>
+</main>
+<script>
+const logEl = document.getElementById('log');
+const log = (t)=>{ logEl.textContent += t + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+document.getElementById('host').textContent = location.host;
+document.getElementById('onde').textContent = 'Servidor: ' + location.host;
+let AUTH = null;
+
+async function iniciar(){
+  const estado = document.getElementById('estado');
+  try{
+    const cfg = await (await fetch('/api/config')).json();
+    let url = cfg.url;
+    try{ // mesmo caminho do app: tenta falar com o Supabase pelo próprio site, cai no endereço direto
+      const r = await fetch(location.origin + '/supabase/auth/v1/health', { headers: { apikey: cfg.anonKey } });
+      const j = r.ok ? await r.json() : null;
+      if(j && j.name === 'GoTrue') url = location.origin + '/supabase';
+    }catch(e){}
+    const storageKey = 'sb-' + new URL(cfg.url).hostname.split('.')[0] + '-auth-token';
+    AUTH = supabase.createClient(url, cfg.anonKey, { auth: { storageKey } });
+    const { data } = await AUTH.auth.getSession();
+    if(!data.session){ estado.innerHTML = 'Você não está logado. <a href="/">Abra o app e entre</a>, depois volte para esta página.'; return; }
+    estado.textContent = 'Logado como ' + data.session.user.email + '.';
+    estado.className = '';
+    document.getElementById('btnBaixar').disabled = false;
+    document.getElementById('btnRestaurar').disabled = false;
+  }catch(e){ estado.textContent = 'Erro ao verificar o login: ' + e.message; }
+}
+
+async function api(path, opts){
+  const { data } = await AUTH.auth.getSession();
+  if(!data.session) throw new Error('sessão expirada — recarregue a página');
+  const r = await fetch(path, Object.assign({}, opts, { headers: Object.assign({ Authorization: 'Bearer ' + data.session.access_token }, (opts && opts.headers) || {}) }));
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+  return j;
+}
+
+document.getElementById('btnBaixar').onclick = async ()=>{
+  const btn = document.getElementById('btnBaixar'); btn.disabled = true; logEl.textContent = '';
+  try{
+    log('Baixando obras…');
+    const obras = (await api('/api/backup?tabela=obras')).linhas;
+    log('  ' + obras.length + ' obra(s).');
+    log('Baixando usuários e papéis…');
+    const roles = (await api('/api/backup?tabela=user_roles')).linhas;
+    log('  ' + roles.length + ' registro(s).');
+    log('Baixando documentos (pode demorar)…');
+    const partes = [];
+    let depois = null, total = 0, bytes = 0;
+    do{
+      const r = await api('/api/backup?tabela=docs' + (depois ? '&depois=' + encodeURIComponent(depois) : ''));
+      for(const l of r.linhas){ const s = JSON.stringify(l); partes.push(s); bytes += s.length; }
+      total += r.linhas.length; depois = r.proximo;
+      log('  ' + total + ' documento(s), ' + (bytes/1048576).toFixed(1) + ' MB…');
+    }while(depois);
+    const blob = new Blob([
+      '{"versao":1,"geradoEm":' + JSON.stringify(new Date().toISOString()) + ',"origem":' + JSON.stringify(location.host) + ',',
+      '"obras":' + JSON.stringify(obras) + ',"user_roles":' + JSON.stringify(roles) + ',"docs":[',
+      partes.join(','), ']}'
+    ], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'backup-sprint-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    log('Pronto: ' + obras.length + ' obras, ' + roles.length + ' usuários/papéis, ' + total + ' documentos. Arquivo baixado.');
+  }catch(e){ log('ERRO: ' + e.message); }
+  btn.disabled = false;
+};
+
+document.getElementById('btnRestaurar').onclick = async ()=>{
+  const f = document.getElementById('arquivo').files[0];
+  if(!f){ log('Escolha o arquivo de backup primeiro.'); return; }
+  logEl.textContent = '';
+  let b;
+  try{ b = JSON.parse(await f.text()); }catch(e){ log('Arquivo inválido (não é JSON).'); return; }
+  if(!b || b.versao !== 1 || !Array.isArray(b.obras) || !Array.isArray(b.user_roles) || !Array.isArray(b.docs)){ log('Esse arquivo não parece um backup deste app.'); return; }
+  if(!confirm('Gravar ' + b.obras.length + ' obra(s), ' + b.user_roles.length + ' usuário(s)/papel(éis) e ' + b.docs.length + ' documento(s) NESTE servidor (' + location.host + ')?\n\nBackup gerado em: ' + (b.origem || '?') + '. Nada é apagado.')) return;
+  const btn = document.getElementById('btnRestaurar'); btn.disabled = true;
+  try{
+    const lote = async (tabela, linhas, maxBytes)=>{
+      let i = 0, gravadas = 0;
+      while(i < linhas.length){
+        let fim = i, bytes = 0;
+        while(fim < linhas.length && (fim === i || (bytes + JSON.stringify(linhas[fim]).length < maxBytes && fim - i < 500))){ bytes += JSON.stringify(linhas[fim]).length; fim++; }
+        const parte = linhas.slice(i, fim);
+        let tentativa = 0;
+        for(;;){
+          try{ const r = await api('/api/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tabela, linhas: parte }) }); gravadas += r.gravadas; break; }
+          catch(e){ if(++tentativa >= 3) throw e; log('  nova tentativa (' + e.message + ')'); }
+        }
+        i = fim; log('  ' + tabela + ': ' + gravadas + '/' + linhas.length);
+      }
+    };
+    log('Gravando obras…'); await lote('obras', b.obras, 1e6);
+    log('Gravando usuários e papéis…'); await lote('user_roles', b.user_roles, 1e6);
+    log('Gravando documentos…'); await lote('docs', b.docs, 3e6);
+    log('Restauração concluída.');
+  }catch(e){ log('ERRO: ' + e.message + '\nPode rodar de novo: o que já foi gravado só é atualizado.'); }
+  btn.disabled = false;
+};
+iniciar();
+</script>
+</body>
+</html>
