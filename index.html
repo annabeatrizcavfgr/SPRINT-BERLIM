@@ -3616,13 +3616,25 @@ function blocoA(pacoteIdx, respFiltro){
 // planilha de Metas: reverter o realizado pra usar data real, sem separar o meta, jogava o meta junto
 // pra data real também). Achado com dado real 2026-09-09 (28-REVESTIMENTO CERÂMICO, todas as semanas
 // com Previsto errado).
+// Casa 100% concluída com término NO FUTURO (concluída ADIANTADA: o 100% foi lançado, mas o MS Project manteve a
+// data de término planejada) não pode contar numa semana que ainda não aconteceu — antes o Painel mostrava
+// "realizado" em semanas futuras (achado 2026-11-05, 32-ACABAMENTOS FINAIS: 2/13, 0/13, 3/13, 2/13 em novembro).
+// Ela passa a contar na semana da DATA DE REFERÊNCIA do arquivo (a data real em que a planilha foi gerada, que pode
+// ser depois da sexta-feira confirmada — ex.: arquivo de 04/11 confirmado como semana de 30/10), no máximo.
+// Só mexe em quem tem término depois dessa data; o resto continua na semana do próprio término.
+function dataRefRealOrd(){
+  const m = SNAPSHOTS_META.find(s=>s.dateRef===VIEW_DATE_REF);
+  const raw = (m && m.rawDateRef) ? ordFromIso(m.rawDateRef) : null;
+  return (raw!=null && !isNaN(raw) && raw>TODAY_ORD) ? raw : TODAY_ORD;
+}
+function fimRealizadoOrd(r){ const ref = dataRefRealOrd(); return r.vigFim>ref ? ref : r.vigFim; }
 function weeklySeries(rs, weeksBack){
   weeksBack = weeksBack || 8;
   const buckets = new Map(); // weekOrd -> {meta,realizado}
   const bump = (w, key)=>{ if(!buckets.has(w)) buckets.set(w,{meta:0, realizado:0}); buckets.get(w)[key]++; };
   rs.forEach(r=>{
     metaWeeks(r).forEach(x=> bump(x.w, 'meta'));
-    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0) bump(weekOfOrd(r.vigFim), 'realizado');
+    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0) bump(weekOfOrd(fimRealizadoOrd(r)), 'realizado');
   });
   const weeksAll = [...buckets.keys()].filter(w=>w<=weekOfOrd(TODAY_ORD)).sort((a,b)=>a-b);
   const weeks = weeksAll.slice(-weeksBack);
@@ -3639,7 +3651,7 @@ function monthCompare(rs){
   let curCount=0, prevCount=0;
   rs.forEach(r=>{
     if(r.realizadoPct>=100 && r.vigFim>=0){
-      const mk = monthKey(r.vigFim);
+      const mk = monthKey(fimRealizadoOrd(r));
       if(mk===cur) curCount++; else if(mk===prev) prevCount++;
     }
   });
@@ -3687,7 +3699,7 @@ function weeklySeriesForWeeks(rs, weekOrds, respFiltro){
   const bump = (w, key)=>{ if(!buckets.has(w)) buckets.set(w,{meta:0, realizado:0}); buckets.get(w)[key]++; };
   rs.forEach(r=>{
     metaWeeks(r).forEach(x=>{ if(respFiltro==null || respFiltro.includes(x.resp)) bump(x.w, 'meta'); });
-    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && (respFiltro==null || respFiltro.includes(r.respIdx))) bump(weekOfOrd(r.vigFim), 'realizado');
+    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && (respFiltro==null || respFiltro.includes(r.respIdx))) bump(weekOfOrd(fimRealizadoOrd(r)), 'realizado');
   });
   return weekOrds.map(w=>({ ord:w, label: fmtDateShort(w), meta:(buckets.get(w)||{meta:0}).meta, realizado:(buckets.get(w)||{realizado:0}).realizado }));
 }
@@ -3730,7 +3742,7 @@ function mesMetricsForPacote(pacoteIdx, weekOrds, respFiltro){
   let meta=0, realizado=0;
   rs.forEach(r=>{
     metaWeeks(r).forEach(x=>{ if(weekSet.has(x.w) && (respFiltro==null || respFiltro.includes(x.resp))) meta++; });
-    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && weekSet.has(weekOfOrd(r.vigFim)) && (respFiltro==null || respFiltro.includes(r.respIdx))) realizado++;
+    if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0 && weekSet.has(weekOfOrd(fimRealizadoOrd(r))) && (respFiltro==null || respFiltro.includes(r.respIdx))) realizado++;
   });
   return { meta, realizado, pct: meta ? realizado/meta : null };
 }
@@ -4320,7 +4332,7 @@ function respWeeklyBreakdown(pacoteIdx, weekOrds){
       if(!names.has(x.resp)) names.set(x.resp, LOOKUPS.responsaveis[x.resp]||'—');
     });
     if(r.realizadoPct>=100 && r.vigFim!=null && r.vigFim>=0){
-      bump(realBuckets, r.respIdx, weekOfOrd(r.vigFim));
+      bump(realBuckets, r.respIdx, weekOfOrd(fimRealizadoOrd(r)));
       if(!names.has(r.respIdx)) names.set(r.respIdx, LOOKUPS.responsaveis[r.respIdx]||'—');
     }
   });
