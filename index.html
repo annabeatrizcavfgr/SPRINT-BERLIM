@@ -3751,6 +3751,21 @@ function periodCompare(pacoteIdx){
   const mc = monthCompare(rowsForPacote(pacoteIdx));
   return { curLabel: monthLabel(mc.cur), curCount: mc.curCount, prevLabel: monthLabel(mc.prev), prevCount: mc.prevCount, delta: mc.delta };
 }
+// "Término previsto" (Painel gerencial, 2026-11-06, pedido dela): data de conclusão do pacote conforme a planilha de
+// METAS MAIS RECENTE — a data de término mais tardia entre as casas (r.metaVigFim, que applyMetasOverride preenche
+// só com a planilha de metas mais recente). Sem planilha de metas (ou pacote fora dela): null, e a tela mostra "—".
+// Com filtro de responsável, considera só as casas dele segundo a PLANILHA DE METAS (metaRespIdx), como o resto do
+// "previsto" no app.
+function metasFimForPacote(pacoteIdx, respFiltro){
+  let max = null;
+  rowsForPacote(pacoteIdx).forEach(r=>{
+    if(r.metaVigFim==null || r.metaVigFim<0) return;
+    const resp = r.metaRespIdx!=null ? r.metaRespIdx : r.respIdx;
+    if(respFiltro!=null && !respFiltro.includes(resp)) return;
+    if(max==null || r.metaVigFim>max) max = r.metaVigFim;
+  });
+  return max;
+}
 // data de conclusão do pacote segundo a linha de base — a mais tardia entre as casas
 function baselineFimForPacote(pacoteIdx, respFiltro){
   const valid = rowsForPacote(pacoteIdx)
@@ -6748,7 +6763,7 @@ function renderPainelGerencial(){
         <thead><tr>
           <th>Pacote</th>
           ${visW ? weekOrds.map((w,i)=>`<th>Semana ${i+1}</th>`).join('') : ''}
-          ${trailingDefs.map(c=>`<th${c.desc?` title="${c.desc}"`:''}>${c.label}</th>`).join('')}
+          ${trailingDefs.map(c=>`<th${c.desc?` title="${c.desc}"`:''}${c.id==='terminoEstimado'?' style="white-space:normal; min-width:150px; max-width:190px; line-height:1.25;"':''}>${c.label}</th>`).join('')}
         </tr></thead>
         <tbody>
         ${visibleResp.length ? visibleResp.map(p=>{
@@ -6774,6 +6789,7 @@ function renderPainelGerencial(){
             terminoEstimado: proj.concluido
               ? `<td class="num-cell mono" style="color:var(--good); font-weight:700;">Concluído</td>`
               : `<td class="num-cell mono" style="${(proj.dataConclusao!=null && proj.baselineFim!=null && proj.dataConclusao>proj.baselineFim)?'color:var(--critical); font-weight:700;':''}">${proj.dataConclusao!=null?fmtDate(proj.dataConclusao):'—'}</td>`,
+            terminoPrevisto: (()=>{ const tp = metasFimForPacote(p.idx, respFiltroExpandido); return `<td class="num-cell mono">${tp!=null?fmtDate(tp):'—'}</td>`; })(),
             terminoBase: `<td class="num-cell mono">${proj.baselineFim!=null?fmtDate(proj.baselineFim):'—'}</td>`,
           };
           const barHtml = `<div class="pct-bar">
@@ -7110,7 +7126,8 @@ const PAINEL_COL_DEFS = [
   {id:'idp', label:'IDP', desc:'Índice de Desempenho de Prazo = Realizado acumulado ÷ Base acumulada. Abaixo de 1 indica atraso em relação à linha de base.'},
   {id:'ritmo', label:'Ritmo médio', desc:'Média de casas concluídas por semana nas últimas 8 semanas com dados.'},
   {id:'ritmoMaxBase', label:'Ritmo máximo (linha de base)', desc:'A maior quantidade de casas que a Linha de base prevê entregar numa mesma semana, pra esse pacote — a semana mais carregada do planejamento original, não uma média.'},
-  {id:'terminoEstimado', label:'Término estimado', desc:'Data prevista de conclusão do pacote no ritmo atual (sempre uma sexta-feira). "Concluído" quando não resta nenhuma casa.'},
+  {id:'terminoEstimado', label:'Tendência de término (conforme ritmo médio)', desc:'Tendência de conclusão do pacote se o ritmo médio atual continuar (sempre uma sexta-feira). Fica vermelha quando passa do término da linha de base. "Concluído" quando não resta nenhuma casa.'},
+  {id:'terminoPrevisto', label:'Término previsto', desc:'Data de término do pacote conforme a planilha de metas mais recente (a data mais tardia entre as casas). "—" quando ainda não há planilha de metas enviada.'},
   {id:'terminoBase', label:'Término linha de base', desc:'Data de término segundo a Linha de base.'},
 ];
 function painelColVisible(id){ return !PAINEL_HIDDEN_COLS.includes(id); }
