@@ -1831,6 +1831,7 @@ const AUTH_EMAIL_KEY = 'jb_last_email';
 const AUTH_KEEP_KEY = 'jb_keep';
 let AUTH_OAUTH = null;               // 'azure' = mostra "Entrar com Microsoft" (vem de /api/config; vazio na Vercel)
 let AUTH_OAUTH_ONLY = false;         // true = só o botão da Microsoft (sem e-mail/senha)
+let AUTH_AUTO_APROVAR = false;       // true = quem entra pela conta Microsoft entra como Visualizador já aprovado (sem "Pedir acesso")
 let AUTH_LOGIN_COMPARTILHADO = false; // true = o login é de TODOS os apps da FGR (Hydra): excluir pessoa só tira o acesso a esta obra
 function authEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function authEmailOk(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
@@ -2116,7 +2117,7 @@ function obraScreenHtml(minhas, todas, msg, closable){
         ${outras.map(o=>`
           <div class="list-row">
             <div>${o.nome}</div>
-            <button class="btn btn-sm" data-pedir="${o.id}" data-nome="${o.nome.replace(/"/g,'&quot;')}">Pedir acesso</button>
+            <button class="btn btn-sm" data-pedir="${o.id}" data-nome="${o.nome.replace(/"/g,'&quot;')}"${AUTH_AUTO_APROVAR?' title="Você entra como Visualizador. Um planejador da obra pode mudar o seu papel depois."':''}>${AUTH_AUTO_APROVAR?'Entrar':'Pedir acesso'}</button>
           </div>`).join('')}
       </div>
     ` : ''}
@@ -2230,7 +2231,7 @@ async function initAuth(){
   // responder (ex.: rodando local, sem a regra de repasse), cai no endereço direto como era antes.
   // storageKey fixo = a mesma chave que o Supabase já usava, pra ninguém ser deslogado por causa da troca.
   // Hydra: o servidor diz se o login é pela conta Microsoft da FGR e se o login é compartilhado com outros apps
-  AUTH_OAUTH = cfg.oauth || null; AUTH_OAUTH_ONLY = !!cfg.oauthOnly; AUTH_LOGIN_COMPARTILHADO = !!cfg.loginCompartilhado;
+  AUTH_OAUTH = cfg.oauth || null; AUTH_OAUTH_ONLY = !!cfg.oauthOnly; AUTH_LOGIN_COMPARTILHADO = !!cfg.loginCompartilhado; AUTH_AUTO_APROVAR = !!cfg.autoAprovar;
   let urlAuth = cfg.url;
   try{
     const viaSite = location.origin + '/supabase';
@@ -2400,7 +2401,9 @@ async function openUsersModal(){
         const ok = await confirmModal({
           title: 'Excluir '+email+'?',
           body: AUTH_LOGIN_COMPARTILHADO
-            ? 'Isso tira o acesso dela a esta obra. O login Microsoft dela não é apagado (ele é de todos os apps da FGR). Se ela entrar de novo, cai como pendente, esperando aprovação.'
+            ? (AUTH_AUTO_APROVAR
+              ? 'Isso tira o acesso e o papel dela nesta obra. O login Microsoft dela não é apagado (ele é de todos os apps da FGR). Se ela entrar de novo na obra, volta como Visualizador (quem usa a conta da FGR entra sempre como Visualizador).'
+              : 'Isso tira o acesso dela a esta obra. O login Microsoft dela não é apagado (ele é de todos os apps da FGR). Se ela entrar de novo, cai como pendente, esperando aprovação.')
             : 'Isso apaga o login dela por completo — ela não consegue mais entrar com a senha antiga. Se tentar de novo, precisa criar uma conta nova (e cai como pendente, esperando aprovação de novo).',
           confirmLabel: 'Excluir', danger: true
         });

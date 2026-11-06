@@ -54,7 +54,7 @@ export default async function handler(req, res) {
         if (!obraId) return res.status(400).json({ error: 'obra_id obrigatorio' });
         const { data: obra } = await admin.from('obras').select('id').eq('id', obraId).maybeSingle();
         if (!obra) return res.status(404).json({ error: 'obra nao encontrada' });
-        const mine = await getUserRoleStatus(admin, user.id, user.email, obraId);
+        const mine = await getUserRoleStatus(admin, user.id, user.email, obraId, user);
         return res.status(200).json({ ok: true, role: mine.role, status: mine.status });
       }
 

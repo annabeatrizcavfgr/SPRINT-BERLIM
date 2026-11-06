@@ -83,7 +83,7 @@ export default async function handler(req, res) {
     const pathParaObra = req.method === 'POST' ? (req.body || {}).path : req.query.path;
     const obraId = obraIdFromPath(pathParaObra);
     if (!obraId) return res.status(400).json({ error: 'path precisa comecar com "obras/<id>/"' });
-    const mine = await getUserRoleStatus(supabase, user.id, user.email, obraId);
+    const mine = await getUserRoleStatus(supabase, user.id, user.email, obraId, user);
     if (mine.status !== 'approved') return res.status(403).json({ error: 'conta aguardando aprovacao nessa obra', status: mine.status });
 
     if (req.method === 'GET') {

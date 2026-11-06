@@ -36,7 +36,7 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const obraId = req.query.obra_id;
       if (!obraId) return res.status(400).json({ error: 'obra_id obrigatorio' });
-      const mine = await getUserRoleStatus(admin, user.id, user.email, obraId);
+      const mine = await getUserRoleStatus(admin, user.id, user.email, obraId, user);
 
       if (req.query.list === 'true') {
         if (mine.role !== 'planejador') return res.status(403).json({ error: 'sem permissao' });
@@ -79,7 +79,7 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const { obra_id: obraId, email, role, status } = req.body || {};
       if (!obraId) return res.status(400).json({ error: 'obra_id obrigatorio' });
-      const mine = await getUserRoleStatus(admin, user.id, user.email, obraId);
+      const mine = await getUserRoleStatus(admin, user.id, user.email, obraId, user);
       if (mine.role !== 'planejador') return res.status(403).json({ error: 'sem permissao' });
       if (!email) return res.status(400).json({ error: 'e-mail obrigatorio' });
       if (role && !['planejador', 'coordenador', 'visualizador'].includes(role)) return res.status(400).json({ error: 'role invalido' });
@@ -108,7 +108,7 @@ export default async function handler(req, res) {
     if (req.method === 'DELETE') {
       const { obra_id: obraId, email } = req.body || {};
       if (!obraId) return res.status(400).json({ error: 'obra_id obrigatorio' });
-      const mine = await getUserRoleStatus(admin, user.id, user.email, obraId);
+      const mine = await getUserRoleStatus(admin, user.id, user.email, obraId, user);
       if (mine.role !== 'planejador') return res.status(403).json({ error: 'sem permissao' });
       if (!email) return res.status(400).json({ error: 'e-mail obrigatorio' });
       if (email === user.email) return res.status(400).json({ error: 'voce nao pode excluir sua propria conta' });

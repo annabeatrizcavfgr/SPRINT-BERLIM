@@ -6,6 +6,8 @@
 // HYDRA (2026-10-29): duas variáveis opcionais mudam a tela de login (na Vercel ficam vazias e nada muda):
 //   OAUTH_PROVIDER=azure  — mostra o botão "Entrar com Microsoft" (login corporativo da FGR, via Supabase Auth)
 //   OAUTH_ONLY=1          — esconde e-mail/senha: só o botão da Microsoft
+//   AUTO_APROVAR_PROVEDOR=azure — quem entra por esse provedor é salvo como Visualizador JÁ APROVADO (ver
+//                                 lib/supabaseAuth.js); aqui só avisa o front-end pra trocar "Pedir acesso" por "Entrar"
 export default async function handler(req, res) {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
     return res.status(500).json({ error: 'SUPABASE_URL/SUPABASE_ANON_KEY não configuradas' });
@@ -16,5 +18,6 @@ export default async function handler(req, res) {
     oauth: process.env.OAUTH_PROVIDER || null,
     oauthOnly: process.env.OAUTH_ONLY === '1',
     loginCompartilhado: process.env.AUTH_COMPARTILHADA === '1',
+    autoAprovar: !!(process.env.AUTO_APROVAR_PROVEDOR || '').trim(),
   });
 }

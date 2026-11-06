@@ -29,6 +29,8 @@ Só continue quando a branch **`hydra`** estiver publicada no GitHub (GitHub Des
 | `RELIGAR_POR_EMAIL` | `1` |
 | `BOOTSTRAP_ADMIN_EMAILS` | `anna.ribeiro@fgr.com.br` (e outros e-mails de planejadores, separados por vírgula) |
 | `OAUTH_PROVIDER` | `azure` — **só depois** de ligar o provider Microsoft no Studio (passo 4) |
+| `AUTO_APROVAR_PROVEDOR` | `azure` — quem entra pela conta Microsoft da FGR é salvo como **Visualizador já aprovado** na obra que escolher (sem "Pedir acesso" nem aprovação). Só Visualizador: planejador/coordenador continuam sendo dados por um planejador em "Usuários". Cadastro por e-mail e senha continua pendente |
+| `OAUTH_ONLY` | `1` — opcional: esconde o e-mail/senha e deixa só o botão da Microsoft |
 | `ADMIN_NOTIFY_EMAIL`, `RESEND_API_KEY` | opcionais (aviso por e-mail de novo pedido de acesso; usa o Resend, serviço externo — pode não funcionar na rede interna) |
 
 Não marque nenhuma como "Build Variable".
