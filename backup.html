@@ -39,6 +39,7 @@
     <h2>2. Restaurar um backup neste servidor</h2>
     <p>Lê um arquivo de backup e grava os dados <strong>neste servidor</strong> (<span id="host"></span>). Quem já existe com o mesmo identificador é atualizado; nada é apagado. Pode repetir sem duplicar.</p>
     <input type="file" id="arquivo" accept=".json,application/json">
+    <p><label><input type="checkbox" id="comUsuarios"> Restaurar também usuários e papéis <span style="color:#666;">(deixe desmarcado ao trazer dados atualizados de outro servidor: os logins mudam de um servidor pro outro, e isso poderia desfazer os acessos já ajustados aqui)</span></label></p>
     <p><button id="btnRestaurar" class="sec" disabled>Restaurar</button></p>
   </div>
 
@@ -120,7 +121,8 @@ document.getElementById('btnRestaurar').onclick = async ()=>{
   let b;
   try{ b = JSON.parse(await f.text()); }catch(e){ log('Arquivo inválido (não é JSON).'); return; }
   if(!b || b.versao !== 1 || !Array.isArray(b.obras) || !Array.isArray(b.user_roles) || !Array.isArray(b.docs)){ log('Esse arquivo não parece um backup deste app.'); return; }
-  if(!confirm('Gravar ' + b.obras.length + ' obra(s), ' + b.user_roles.length + ' usuário(s)/papel(éis) e ' + b.docs.length + ' documento(s) NESTE servidor (' + location.host + ')?\n\nBackup gerado em: ' + (b.origem || '?') + '. Nada é apagado.')) return;
+  const comUsuarios = document.getElementById('comUsuarios').checked;
+  if(!confirm('Gravar ' + b.obras.length + ' obra(s), ' + (comUsuarios ? b.user_roles.length + ' usuário(s)/papel(éis)' : 'SEM usuários/papéis (mantém os daqui)') + ' e ' + b.docs.length + ' documento(s) NESTE servidor (' + location.host + ')?\n\nDocumentos com o mesmo caminho são substituídos pela versão do arquivo. Backup gerado em: ' + (b.origem || '?') + ' (' + (b.geradoEm || '?') + '). Nada é apagado.')) return;
   const btn = document.getElementById('btnRestaurar'); btn.disabled = true;
   try{
     const lote = async (tabela, linhas, maxBytes)=>{
@@ -138,7 +140,8 @@ document.getElementById('btnRestaurar').onclick = async ()=>{
       }
     };
     log('Gravando obras…'); await lote('obras', b.obras, 1e6);
-    log('Gravando usuários e papéis…'); await lote('user_roles', b.user_roles, 1e6);
+    if(comUsuarios){ log('Gravando usuários e papéis…'); await lote('user_roles', b.user_roles, 1e6); }
+    else log('Usuários e papéis: mantidos como estão (não restaurados).');
     log('Gravando documentos…'); await lote('docs', b.docs, 3e6);
     log('Restauração concluída.');
   }catch(e){ log('ERRO: ' + e.message + '\nPode rodar de novo: o que já foi gravado só é atualizado.'); }
