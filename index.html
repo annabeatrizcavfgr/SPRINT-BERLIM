@@ -6750,7 +6750,7 @@ function renderPainelGerencial(){
   const idxSemanas = orderedDefs.findIndex(c=>c.id==='semanas');
   const colsAntes = idxSemanas<0 ? 0 : idxSemanas;
   const colsDepois = idxSemanas<0 ? 0 : orderedDefs.length-idxSemanas-1;
-  const thDef = c=>`<th${c.desc?` title="${c.desc}"`:''}${c.id==='terminoEstimado'?' style="white-space:normal; min-width:150px; max-width:190px; line-height:1.25;"':''}>${c.label}</th>`;
+  const thDef = c=>`<th${c.desc?` title="${c.desc}"`:''}${(c.id==='terminoEstimado'||c.id==='ritmoMaxBase')?' style="white-space:normal; min-width:96px; max-width:120px; line-height:1.25;"':''}>${c.label}</th>`;
   const totalDataCols = nWeeks + nTrailing;
   screen.innerHTML = `
   <div class="screen-enter">
@@ -7137,8 +7137,8 @@ const PAINEL_COL_DEFS = [
   {id:'real', label:'Real. acum.', desc:'Casas efetivamente concluídas até esta semana.'},
   {id:'idp', label:'IDP', desc:'Índice de Desempenho de Prazo = Realizado acumulado ÷ Base acumulada. Abaixo de 1 indica atraso em relação à linha de base.'},
   {id:'ritmo', label:'Ritmo médio', desc:'Média de casas concluídas por semana nas últimas 8 semanas com dados.'},
-  {id:'ritmoMaxBase', label:'Ritmo máximo (linha de base)', desc:'A maior quantidade de casas que a Linha de base prevê entregar numa mesma semana, pra esse pacote — a semana mais carregada do planejamento original, não uma média.'},
-  {id:'terminoEstimado', label:'Tendência de término (conforme ritmo médio)', desc:'Tendência de conclusão do pacote se o ritmo médio atual continuar (sempre uma sexta-feira). Fica vermelha quando passa do término da linha de base. "Concluído" quando não resta nenhuma casa.'},
+  {id:'ritmoMaxBase', label:'Ritmo máximo (LOB)', desc:'LOB = linha de base. A maior quantidade de casas que a Linha de base prevê entregar numa mesma semana, pra esse pacote — a semana mais carregada do planejamento original, não uma média.'},
+  {id:'terminoEstimado', label:'Término conforme ritmo méd.', desc:'Tendência de término: conclusão do pacote se o ritmo médio atual continuar (sempre uma sexta-feira). Fica vermelha quando passa do término da linha de base. "Concluído" quando não resta nenhuma casa.'},
   {id:'terminoPrevisto', label:'Término previsto', desc:'Data de término do pacote conforme a planilha de metas mais recente (a data mais tardia entre as casas). "—" quando ainda não há planilha de metas enviada.'},
   {id:'terminoBase', label:'Término linha de base', desc:'Data de término segundo a Linha de base.'},
 ];
