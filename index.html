@@ -1125,6 +1125,9 @@ let PROJECAO_OPEN = false; // "+ Projeção da semana" (card da planilha PCP) �
 // colunas ocultas na tabela do Painel gerencial (pra apresentações mais enxutas) — array de ids de
 // PAINEL_COL_DEFS; vazio = mostra todas. "Pacote" nunca é ocultável (é a identidade da linha).
 let PAINEL_HIDDEN_COLS = [];
+// ordem das colunas da tabela do Painel gerencial (ids de PAINEL_COL_DEFS, "semanas" = o grupo das
+// colunas "Semana N" inteiro) — vazio = ordem original. Ver painelColOrder()/openColunasModal().
+let PAINEL_COL_ORDER = [];
 // filtro de responsável na tabela do Painel gerencial (2026-09-16, pedido dela) — recalcula Base/
 // Realizado/IDP/Total no mês/Ritmo/Término SÓ com as casas da(s) pessoa(s) selecionada(s), e some da
 // lista os pacotes em que nenhuma delas tem casa. null = todos (comportamento normal, sem filtro);
@@ -1172,7 +1175,7 @@ async function saveUiPrefs(){
     await db.doc('meta/uiPrefs').set({
       sortMode: SORT_MODE, selectedNames: SELECTED_NAMES, mapaPacoteIdx: MAPA_PACOTE_IDX,
       currentScreen: CURRENT_SCREEN, selectedMesId: SELECTED_MES_ID, customOrder: CUSTOM_ORDER,
-      painelHiddenCols: PAINEL_HIDDEN_COLS, focoPacoteIdx: FOCO_PACOTE_IDX,
+      painelHiddenCols: PAINEL_HIDDEN_COLS, painelColOrder: PAINEL_COL_ORDER, focoPacoteIdx: FOCO_PACOTE_IDX,
       painelRespFiltro: PAINEL_RESP_FILTRO,
       presentationMode: PRESENTATION_MODE, causasFiltroPacotes: CAUSAS_FILTRO_PACOTES,
       causasFiltroPeriodos: CAUSAS_FILTRO_PERIODOS, mapaRotation: MAPA_ROTATION,
@@ -2469,7 +2472,7 @@ async function initDb(){
   // se a obra atual já tiver algo salvo, o bloco abaixo sobrescreve de novo com o valor certo dela.
   SORT_MODE = 'desvio_desc'; SELECTED_NAMES = null; MAPA_PACOTE_IDX = null;
   CURRENT_SCREEN = 'home'; SELECTED_MES_ID = null; CUSTOM_ORDER = [];
-  PAINEL_HIDDEN_COLS = []; PAINEL_RESP_FILTRO = null; FOCO_PACOTE_IDX = null;
+  PAINEL_HIDDEN_COLS = []; PAINEL_COL_ORDER = []; PAINEL_RESP_FILTRO = null; FOCO_PACOTE_IDX = null;
   PRESENTATION_MODE = false; CAUSAS_FILTRO_PACOTES = null; CAUSAS_FILTRO_PERIODOS = null;
   QUADRA_FILTRO_PACOTES = null; EXPANDED_IDX = null; RESTRICOES = [];
   RESTRICAO_SEARCH = ''; RESTRICAO_DRAFT = null; RESTRICAO_COLW = null;
@@ -2512,6 +2515,7 @@ async function initDb(){
       if(d.selectedMesId!==undefined) SELECTED_MES_ID = d.selectedMesId;
       if(d.customOrder!=null) CUSTOM_ORDER = d.customOrder;
       if(d.painelHiddenCols!=null) PAINEL_HIDDEN_COLS = d.painelHiddenCols;
+      if(Array.isArray(d.painelColOrder)) PAINEL_COL_ORDER = d.painelColOrder;
       // compat: versão anterior (2026-09-16, v76) guardava um único int; converte pra array de 1
       // item se encontrar um doc antigo salvo assim, pra não quebrar o .includes() no resto do código.
       if(d.painelRespFiltro!==undefined) PAINEL_RESP_FILTRO = typeof d.painelRespFiltro==='number' ? [d.painelRespFiltro] : d.painelRespFiltro;
@@ -6738,8 +6742,15 @@ function renderPainelGerencial(){
   // colunas visíveis (ver openColunasModal) — "semanas" é o grupo de todas as colunas "Semana N" juntas
   const visW = painelColVisible('semanas');
   const nWeeks = visW ? weekOrds.length : 0;
-  const trailingDefs = PAINEL_COL_DEFS.filter(c=>c.id!=='semanas' && painelColVisible(c.id));
+  // colunas na ordem escolhida (ver "Colunas" › arrastar) — "semanas" é o grupo das colunas Semana N e
+  // pode ficar em qualquer posição; o resto é uma coluna cada
+  const orderedDefs = painelColOrder().map(id=>PAINEL_COL_DEFS.find(c=>c.id===id)).filter(c=>painelColVisible(c.id));
+  const trailingDefs = orderedDefs.filter(c=>c.id!=='semanas');
   const nTrailing = trailingDefs.length;
+  const idxSemanas = orderedDefs.findIndex(c=>c.id==='semanas');
+  const colsAntes = idxSemanas<0 ? 0 : idxSemanas;
+  const colsDepois = idxSemanas<0 ? 0 : orderedDefs.length-idxSemanas-1;
+  const thDef = c=>`<th${c.desc?` title="${c.desc}"`:''}${c.id==='terminoEstimado'?' style="white-space:normal; min-width:150px; max-width:190px; line-height:1.25;"':''}>${c.label}</th>`;
   const totalDataCols = nWeeks + nTrailing;
   screen.innerHTML = `
   <div class="screen-enter">
@@ -6765,8 +6776,7 @@ function renderPainelGerencial(){
       <table class="rank-table panel-table">
         <thead><tr>
           <th>Pacote</th>
-          ${visW ? weekOrds.map((w,i)=>`<th>Semana ${i+1}</th>`).join('') : ''}
-          ${trailingDefs.map(c=>`<th${c.desc?` title="${c.desc}"`:''}${c.id==='terminoEstimado'?' style="white-space:normal; min-width:150px; max-width:190px; line-height:1.25;"':''}>${c.label}</th>`).join('')}
+          ${orderedDefs.map(c=> c.id==='semanas' ? weekOrds.map((w,i)=>`<th>Semana ${i+1}</th>`).join('') : thDef(c)).join('')}
         </tr></thead>
         <tbody>
         ${visibleResp.length ? visibleResp.map(p=>{
@@ -6801,17 +6811,16 @@ function renderPainelGerencial(){
               </div>`;
           return `<tr>
             <td><div class="pkg-name">${p.name}</div></td>
-            ${visW ? weeks.map(w=>{
+            ${orderedDefs.map(c=> c.id==='semanas' ? weeks.map(w=>{
               const tone = toneForWeek(w);
               const pctW = w.meta ? w.realizado/w.meta : null;
               return `<td><div class="week-cell ${tone}"><div class="week-cell-nums">${w.realizado}<span class="sep">/</span>${w.meta}</div><div class="week-cell-pct">${pctW==null?'—':pctFmt(pctW)}</div></div></td>`;
-            }).join('') : ''}
-            ${trailingDefs.map(c=>cells[c.id]).join('')}
+            }).join('') : cells[c.id]).join('')}
           </tr>
           ${totalDataCols>0 ? `<tr class="panel-bar-row">
             <td></td>
             ${nWeeks>0
-              ? `<td colspan="${nWeeks}" style="padding-top:0;">${barHtml}</td>${nTrailing>0?`<td colspan="${nTrailing}"></td>`:''}`
+              ? `${colsAntes>0?`<td colspan="${colsAntes}"></td>`:''}<td colspan="${nWeeks}" style="padding-top:0;">${barHtml}</td>${colsDepois>0?`<td colspan="${colsDepois}"></td>`:''}`
               : `<td colspan="${nTrailing}" style="padding-top:0;">${barHtml}</td>`}
           </tr>` : ''}`;
         }).join('') : `<tr><td colspan="${1+totalDataCols}"><p class="empty-note">Nenhum pacote encontrado com o filtro atual.</p></td></tr>`}
@@ -7134,30 +7143,77 @@ const PAINEL_COL_DEFS = [
   {id:'terminoBase', label:'Término linha de base', desc:'Data de término segundo a Linha de base.'},
 ];
 function painelColVisible(id){ return !PAINEL_HIDDEN_COLS.includes(id); }
+// ordem efetiva das colunas: a que ela escolheu (PAINEL_COL_ORDER) + qualquer coluna nova/que faltar no
+// fim, na ordem original — assim uma coluna adicionada numa versão futura nunca some de quem já tinha
+// uma ordem salva.
+function painelColOrder(){
+  const ids = PAINEL_COL_DEFS.map(c=>c.id);
+  const out = [];
+  (PAINEL_COL_ORDER||[]).forEach(id=>{ if(ids.includes(id) && !out.includes(id)) out.push(id); });
+  ids.forEach(id=>{ if(!out.includes(id)) out.push(id); });
+  return out;
+}
 function openColunasModal(){
+  const order = painelColOrder();
   openModal(`
     <h3>Colunas do Painel gerencial</h3>
-    <p>Escolha quais colunas aparecem na tabela — útil pra deixar a visão mais enxuta em apresentações.</p>
-    <div style="border:1px solid var(--border); border-radius:9px; padding:4px 10px;">
-      ${PAINEL_COL_DEFS.map(c=>`
-        <label style="display:flex; align-items:center; gap:9px; padding:7px 2px; cursor:pointer; border-bottom:1px solid var(--border);">
-          <input type="checkbox" data-colcheck="${c.id}" ${painelColVisible(c.id)?'checked':''}>
-          <span>${c.label}</span>
-        </label>`).join('')}
+    <p>Marque quais colunas aparecem e arraste pelo <span class="mono">⠿</span> (ou use as setas) pra
+    definir a ordem, da esquerda (topo da lista) pra direita (fim). "Pacote" fica sempre na frente.
+    Útil pra deixar a visão mais enxuta e na sequência que faz sentido pra apresentação.</p>
+    <div id="colunasList" style="border:1px solid var(--border); border-radius:9px;">
+      ${order.map((id,i)=>{
+        const c = PAINEL_COL_DEFS.find(x=>x.id===id);
+        const vis = painelColVisible(id);
+        return `
+        <div class="ordenar-item" draggable="true" data-colid="${id}" style="${vis?'':'opacity:.45;'}">
+          <span class="ordenar-handle">⠿</span>
+          <input type="checkbox" data-colcheck="${id}" ${vis?'checked':''}>
+          <span style="flex:1;">${c.label}</span>
+          <button class="btn btn-sm" data-colup="${i}" ${i===0?'disabled':''} title="Mover pra esquerda">▲</button>
+          <button class="btn btn-sm" data-coldown="${i}" ${i===order.length-1?'disabled':''} title="Mover pra direita">▼</button>
+        </div>`;
+      }).join('')}
     </div>
     <div class="modal-actions">
+      <button class="btn" id="colunasOrdemOriginal">Restaurar ordem original</button>
       <button class="btn" id="colunasTodas">Mostrar todas</button>
       <button class="btn btn-primary" id="colunasFechar">Concluído</button>
     </div>
   `);
+  const aplicar = (nova)=>{
+    PAINEL_COL_ORDER = nova; saveUiPrefs();
+    renderPainelGerencial(); openColunasModal();
+  };
+  let dragId = null;
+  document.querySelectorAll('#colunasList .ordenar-item').forEach(item=>{
+    item.addEventListener('dragstart', ()=>{ dragId = item.dataset.colid; item.classList.add('dragging'); });
+    item.addEventListener('dragend', ()=> item.classList.remove('dragging'));
+    item.addEventListener('dragover', e=> e.preventDefault());
+    item.addEventListener('drop', e=>{
+      e.preventDefault();
+      const dest = item.dataset.colid;
+      if(!dragId || dragId===dest) return;
+      const nova = order.filter(x=>x!==dragId);
+      nova.splice(nova.indexOf(dest), 0, dragId);
+      aplicar(nova);
+    });
+  });
+  document.querySelectorAll('[data-colup]').forEach(b=>{
+    b.onclick = ()=>{ const i = parseInt(b.dataset.colup,10); if(i>0){ const n = order.slice(); [n[i-1],n[i]]=[n[i],n[i-1]]; aplicar(n); } };
+  });
+  document.querySelectorAll('[data-coldown]').forEach(b=>{
+    b.onclick = ()=>{ const i = parseInt(b.dataset.coldown,10); if(i<order.length-1){ const n = order.slice(); [n[i+1],n[i]]=[n[i],n[i+1]]; aplicar(n); } };
+  });
   document.querySelectorAll('[data-colcheck]').forEach(cb=>{
     cb.onchange = ()=>{
       const id = cb.dataset.colcheck;
       PAINEL_HIDDEN_COLS = cb.checked ? PAINEL_HIDDEN_COLS.filter(x=>x!==id) : [...PAINEL_HIDDEN_COLS, id];
       saveUiPrefs();
       renderPainelGerencial();
+      cb.closest('.ordenar-item').style.opacity = cb.checked ? '' : '.45';
     };
   });
+  document.getElementById('colunasOrdemOriginal').onclick = ()=> aplicar([]);
   document.getElementById('colunasTodas').onclick = ()=>{
     PAINEL_HIDDEN_COLS = []; saveUiPrefs();
     renderPainelGerencial(); closeModal(); openColunasModal();
