@@ -6817,11 +6817,9 @@ function renderPainelGerencial(){
               return `<td><div class="week-cell ${tone}"><div class="week-cell-nums">${w.realizado}<span class="sep">/</span>${w.meta}</div><div class="week-cell-pct">${pctW==null?'—':pctFmt(pctW)}</div></div></td>`;
             }).join('') : cells[c.id]).join('')}
           </tr>
-          ${totalDataCols>0 ? `<tr class="panel-bar-row">
+          ${nWeeks>0 ? `<tr class="panel-bar-row">
             <td></td>
-            ${nWeeks>0
-              ? `${colsAntes>0?`<td colspan="${colsAntes}"></td>`:''}<td colspan="${nWeeks}" style="padding-top:0;">${barHtml}</td>${colsDepois>0?`<td colspan="${colsDepois}"></td>`:''}`
-              : `<td colspan="${nTrailing}" style="padding-top:0;">${barHtml}</td>`}
+            ${colsAntes>0?`<td colspan="${colsAntes}"></td>`:''}<td colspan="${nWeeks}" style="padding-top:0;">${barHtml}</td>${colsDepois>0?`<td colspan="${colsDepois}"></td>`:''}
           </tr>` : ''}`;
         }).join('') : `<tr><td colspan="${1+totalDataCols}"><p class="empty-note">Nenhum pacote encontrado com o filtro atual.</p></td></tr>`}
         </tbody>
