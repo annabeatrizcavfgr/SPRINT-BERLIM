@@ -6727,6 +6727,7 @@ function renderPainelGerencial(){
         </div>
         <button class="btn btn-sm" id="btnPacotesP" title="Escolher quais pacotes aparecem e em que ordem">${ico('sort')} Pacotes</button>
         <button class="btn btn-sm" id="btnColunasP">Colunas</button>
+        <button class="btn btn-sm" id="btnExportarP" title="Gera uma imagem (PNG) do painel como está na tela — baixa o arquivo e copia pra colar direto no Word/PowerPoint">${ico('download')} Exportar imagem</button>
         <select class="inline" id="sortModeP">${Object.keys(SORT_LABELS).map(k=>`<option value="${k}" ${k===SORT_MODE?'selected':''}>${SORT_LABELS[k]}</option>`).join('')}</select>
       </div>
       <div class="panel-table-wrap">
@@ -6802,6 +6803,7 @@ function renderPainelGerencial(){
   wireCausasAnalise();
   document.getElementById('btnPacotesP').onclick = openPacotesModal;
   document.getElementById('btnColunasP').onclick = openColunasModal;
+  document.getElementById('btnExportarP').onclick = exportarPainelImagem;
   document.querySelectorAll('#painelRespFiltroP [data-respcheck]').forEach(cb=>{
     cb.onchange = ()=>{
       const idx = parseInt(cb.dataset.respcheck,10);
@@ -7098,6 +7100,101 @@ const PAINEL_COL_DEFS = [
   {id:'terminoBase', label:'Término linha de base', desc:'Data de término segundo a Linha de base.'},
 ];
 function painelColVisible(id){ return !PAINEL_HIDDEN_COLS.includes(id); }
+
+/* ---- Exportar o Painel gerencial como imagem (2026-11-11, pedido dela: "exportar o painel gerencial da
+   forma exata como está lá... hoje eu fico tirando print") ----
+   Tira uma "foto" do card do painel (título, filtro de responsável e a tabela INTEIRA — não só o pedaço
+   visível na caixa com rolagem) com o html2canvas, carregado só na hora de exportar. Respeita as colunas
+   escolhidas, a ordem, o filtro de responsável e os pacotes mostrados. Os botões (Pacotes/Colunas/ordenar/
+   exportar) ficam de fora da imagem. Baixa o PNG e também copia pra área de transferência (Ctrl+V no Word). */
+const HTML2CANVAS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+let HTML2CANVAS_PROMESSA = null;
+function carregaHtml2Canvas(){
+  if(window.html2canvas) return Promise.resolve(window.html2canvas);
+  if(!HTML2CANVAS_PROMESSA){
+    // arquivo do próprio app primeiro (Hydra) e só depois o CDN (Vercel / arquivo local ausente)
+    const tenta = url => new Promise((ok, erro)=>{
+      const s = document.createElement('script');
+      s.src = url;
+      s.onload = ()=> window.html2canvas ? ok(window.html2canvas) : erro(new Error('o gerador de imagem não carregou'));
+      s.onerror = ()=> erro(new Error('sem acesso ao gerador de imagem (verifique a internet)'));
+      document.head.appendChild(s);
+    });
+    HTML2CANVAS_PROMESSA = tenta('/vendor/html2canvas.min.js').catch(()=> tenta(HTML2CANVAS_URL))
+      .catch(e=>{ HTML2CANVAS_PROMESSA = null; throw e; });
+  }
+  return HTML2CANVAS_PROMESSA;
+}
+async function painelParaCanvas(){
+  const card = document.getElementById('painelTableCard');
+  if(!card) throw new Error('o painel não está na tela');
+  const h2c = await carregaHtml2Canvas();
+  // trabalha numa CÓPIA do card, fora da tela e sem a caixa de rolagem (a original não é mexida)
+  const caixa = document.createElement('div');
+  caixa.style.cssText = 'position:fixed; left:-20000px; top:0; width:max-content; max-width:none; background:#fff;';
+  const copia = card.cloneNode(true);
+  copia.querySelectorAll('#btnPacotesP, #btnColunasP, #btnExportarP, #sortModeP').forEach(e=>e.remove());
+  copia.querySelectorAll('[id]').forEach(e=>e.removeAttribute('id'));
+  copia.removeAttribute('id');
+  copia.open = true;
+  copia.style.cssText += 'margin:0; box-shadow:none; border:none; width:max-content; max-width:none;';
+  const wrap = copia.querySelector('.panel-table-wrap');
+  if(wrap){ wrap.style.maxHeight = 'none'; wrap.style.overflow = 'visible'; }
+  copia.querySelectorAll('thead th').forEach(th=>{ th.style.position = 'static'; });
+  // Dois contornos de limitações do html2canvas, só na cópia (a tela não muda):
+  //  1) texto dentro de caixa com cor de fundo + inline-flex (as caixinhas das semanas) era desenhado
+  //     por baixo do fundo e sumia — com "position:relative" nos filhos ele fica por cima;
+  //  2) "tabular-nums" (números de largura fixa) é medido pelo navegador mas não desenhado igual na imagem,
+  //     o que deixava um espaço estranho em "11 /sem" — desligado aqui.
+  const estilo = document.createElement('style');
+  estilo.textContent = '.painel-export *{font-variant-numeric:normal !important;} .painel-export .week-cell > div{position:relative;}';
+  caixa.className = 'painel-export';
+  caixa.appendChild(estilo);
+  caixa.appendChild(copia);
+  document.body.appendChild(caixa);
+  try{
+    if(document.fonts && document.fonts.ready) await document.fonts.ready;
+    await new Promise(r=>setTimeout(r, 80)); // deixa o navegador montar o layout da cópia
+    return await h2c(caixa, {
+      scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false,
+      scrollX: 0, scrollY: 0,
+      windowWidth: Math.ceil(caixa.scrollWidth) + 40, windowHeight: Math.ceil(caixa.scrollHeight) + 40,
+    });
+  } finally { caixa.remove(); }
+}
+async function exportarPainelImagem(){
+  const btn = document.getElementById('btnExportarP');
+  const rotulo = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Gerando…'; }
+  // a imagem é gerada UMA vez (blobP) e serve pro arquivo e pra área de transferência
+  const blobP = painelParaCanvas().then(c=> new Promise((ok, erro)=>{
+    c.toBlob(b=> b ? ok(b) : erro(new Error('não foi possível gerar a imagem')), 'image/png');
+  }));
+  blobP.catch(()=>{});
+  // copiar pra área de transferência é um BÔNUS (pode ser negado/travar se a página perder o foco): corre
+  // em paralelo e nunca segura o download do arquivo
+  let copiaP = Promise.resolve(false);
+  try{
+    if(navigator.clipboard && window.ClipboardItem){
+      copiaP = navigator.clipboard.write([new ClipboardItem({ 'image/png': blobP })]).then(()=>true, ()=>false);
+    }
+  }catch(e){ copiaP = Promise.resolve(false); }
+  try{
+    const blob = await blobP;
+    const mes = selectedMes();
+    const nome = 'Painel gerencial - ' + (mes ? mes.label : 'obra').replace(/[\\/:*?"<>|]/g, '-') + '.png';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = nome;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 10000);
+    const copiou = await Promise.race([copiaP, new Promise(r=>setTimeout(()=>r(false), 1500))]);
+    toast(copiou ? 'Imagem baixada e copiada — é só colar (Ctrl+V) no Word.' : 'Imagem baixada.');
+  }catch(e){
+    console.error('exportarPainelImagem', e);
+    toast('Não consegui gerar a imagem: ' + ((e && e.message) || e), 'err');
+  }
+  if(btn){ btn.disabled = false; btn.innerHTML = rotulo; }
+}
 // ordem efetiva das colunas: a que ela escolheu (PAINEL_COL_ORDER) + qualquer coluna nova/que faltar no
 // fim, na ordem original — assim uma coluna adicionada numa versão futura nunca some de quem já tinha
 // uma ordem salva.
