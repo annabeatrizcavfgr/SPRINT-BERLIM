@@ -47,6 +47,7 @@ const vendor = {
   'supabase.js': ['@supabase/supabase-js', 'dist', 'umd', 'supabase.js'],
   'xlsx.full.min.js': ['xlsx', 'dist', 'xlsx.full.min.js'],
   'exceljs.min.js': ['exceljs', 'dist', 'exceljs.min.js'],
+  'html2canvas.min.js': ['html2canvas', 'dist', 'html2canvas.min.js'],
 };
 for (const [nome, partes] of Object.entries(vendor)) {
   app.get('/vendor/' + nome, (req, res) => {
