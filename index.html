@@ -288,6 +288,22 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
 .rank-table tbody tr.pkg-row{cursor:pointer; transition:background .1s;}
 .rank-table tbody tr.pkg-row:hover{background:var(--surface-2);}
 .rank-table tbody tr:last-child td{border-bottom:none;}
+/* ---- Aviso de migração (só no endereço antigo da Vercel — ver mostrarAvisoMigracao) ---- */
+#avisoMigracao{
+  display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; text-align:center;
+  padding:12px 16px; background:#fff1cc; border-bottom:3px solid #e0a100; color:#4a3500;
+  font-family:Inter,"Segoe UI",Arial,sans-serif; font-size:14.5px; line-height:1.4;
+}
+#avisoMigracao a.av-btn{
+  display:inline-block; padding:8px 16px; border-radius:8px; background:#b45309; color:#fff; font-weight:700;
+  text-decoration:none; white-space:nowrap;
+}
+#avisoMigracao a.av-btn:hover{background:#92400e;}
+.auth-screen .au-migrou{
+  margin:0 0 16px; padding:12px 14px; border-radius:8px; background:#fff1cc; border:1px solid #e0a100;
+  color:#4a3500; font-size:13.5px; line-height:1.45;
+}
+.auth-screen .au-migrou a{display:block; margin-top:8px; padding:9px 12px; border-radius:8px; background:#b45309; color:#fff; font-weight:700; text-align:center; text-decoration:none;}
 /* ---- Tela de entrada (login / criar conta / esqueci a senha), desenho do app de referência dela ---- */
 .auth-screen{
   position:fixed; inset:0; z-index:10050; display:flex; align-items:center; justify-content:center;
@@ -1830,6 +1846,27 @@ function updateAuthUi(){
    sobre a foto desfocada, logo da FGR, "Entrar" / "Criar conta" / "Esqueci minha senha". Tela cheia
    própria (não é mais o modal): #authScreen. Imagens em /fgr-logo.png e /login-bg.jpg (arquivos na raiz
    do projeto, servidos pela Vercel como o /frankfurt-map.svg). */
+/* ---- MIGRAÇÃO PRO HYDRA (2026-11): este endereço (Vercel) foi substituído pelo novo; só avisa, não bloqueia.
+   Só aparece quando o app roda num endereço *.vercel.app (ou com ?aviso-migracao=1, pra testar) — assim, mesmo
+   que este código seja mesclado na branch do Hydra, o aviso nunca aparece lá. */
+const NOVO_ENDERECO = 'https://sprint-obras.hydra.fgr.com.br/';
+function ehEnderecoAntigo(){
+  return /\.vercel\.app$/i.test(location.hostname) || /[?&]aviso-migracao=1(&|$)/.test(location.search);
+}
+function mostrarAvisoMigracao(){
+  if(!ehEnderecoAntigo() || document.getElementById('avisoMigracao')) return;
+  const el = document.createElement('div');
+  el.id = 'avisoMigracao'; el.setAttribute('role', 'alert');
+  el.innerHTML = `<span><strong>Este endereço foi desativado: o sistema mudou para um link novo.</strong>
+    Use <strong>${NOVO_ENDERECO.replace(/^https:\/\/|\/$/g, '')}</strong> e entre com a sua conta da FGR (Microsoft).
+    O que for alterado por aqui não aparece no endereço novo.</span>
+    <a class="av-btn" href="${NOVO_ENDERECO}">Abrir o endereço novo</a>`;
+  document.body.insertBefore(el, document.body.firstChild);
+}
+function avisoMigracaoLogin(){
+  if(!ehEnderecoAntigo()) return '';
+  return `<div class="au-migrou"><strong>Este endereço foi desativado.</strong> O sistema mudou para o link novo — entre lá com a sua conta da FGR (Microsoft). O que for alterado por aqui não aparece no endereço novo.<a href="${NOVO_ENDERECO}">Ir para ${NOVO_ENDERECO.replace(/^https:\/\/|\/$/g, '')}</a></div>`;
+}
 const AUTH_EMAIL_KEY = 'jb_last_email';
 const AUTH_KEEP_KEY = 'jb_keep';
 let AUTH_OAUTH = null;               // 'azure' = mostra "Entrar com Microsoft" (vem de /api/config; vazio na Vercel)
@@ -1857,6 +1894,7 @@ function authCardOpen(corpoHtml, msg, tipo){
     <img class="au-logo" src="/fgr-logo.png" alt="FGR Incorporações">
     <h1>Gestão e Controle de Obra</h1>
     <p class="au-sub">FGR Incorporações · Acompanhamento de obras</p>
+    ${avisoMigracaoLogin()}
     <p class="au-msg" id="auMsg"></p>
     <div>${corpoHtml}</div>
   </div>`;
@@ -2213,6 +2251,7 @@ async function afterLogin(){
   render();
 }
 async function initAuth(){
+  mostrarAvisoMigracao();
   // sem backend nenhum (arquivo aberto direto, ou hospedagem sem as functions/variáveis de ambiente
   // configuradas) — cai no modo offline/exemplo de sempre, numa obra "padrão" fixa (sem seletor, sem
   // multi-obra de verdade: é só o teste local/offline, mesmo comportamento de antes da migração).
