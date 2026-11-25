@@ -295,27 +295,14 @@ main#screen{padding:12px 24px 72px 24px; flex:1;}
   text-decoration:none; white-space:nowrap;
 }
 #avisoMigracao a.av-btn:hover{background:#92400e;}
-#telaMigrou{
-  position:fixed; inset:0; z-index:100000; overflow-y:auto; display:flex; padding:24px; box-sizing:border-box;
-  background:radial-gradient(ellipse at 30% 20%, #26364f 0%, #172a4a 45%, #0e1a30 100%);
-  font-family:Inter,"Segoe UI",Arial,sans-serif;
+/* tela "migramos pro Hydra": usa o mesmo cartão da tela de login (.auth-screen / .au-card / .au-btn) */
+#telaMigrou{z-index:100000;}
+#telaMigrou .tm-txt{margin:0 0 18px; font-size:15px; line-height:1.55; color:#4A5263; text-align:center;}
+#telaMigrou a.tm-btn{
+  display:flex; align-items:center; justify-content:center; height:auto; min-height:48px; padding:10px 14px;
+  text-decoration:none; text-align:center; overflow-wrap:anywhere;
 }
-#telaMigrou main{margin:auto; width:min(575px,100%); text-align:center;}
-#telaMigrou img{display:block; width:min(230px,60%); margin:0 auto 34px; filter:brightness(0) invert(1);}
-#telaMigrou .tm-card{background:#fff; border-radius:24px; padding:38px 34px 34px; box-shadow:0 30px 70px rgba(0,0,0,.45);}
-#telaMigrou .tm-card p{margin:0 0 24px; font-size:19px; line-height:1.65; color:#2d3748;}
-#telaMigrou .tm-card a{
-  display:inline-block; padding:15px 24px; border-radius:12px; background:#1b365d; color:#fff;
-  font-size:19px; font-weight:700; text-decoration:none; overflow-wrap:anywhere;
-}
-@media (max-width:480px){
-  #telaMigrou{padding:16px;}
-  #telaMigrou .tm-card{padding:30px 18px 26px;}
-  #telaMigrou .tm-card p{font-size:17px;}
-  #telaMigrou .tm-card a{font-size:15px; padding:14px 10px;}
-}
-#telaMigrou .tm-card a:hover{background:#142848;}
-#telaMigrou .tm-card small{display:block; margin-top:18px; font-size:13.5px; color:#7a8394;}
+#telaMigrou .tm-small{margin:14px 0 0; text-align:center; font-size:13px; color:#7A8394;}
 .auth-screen .au-migrou{
   margin:0 0 16px; padding:12px 14px; border-radius:8px; background:#fff1cc; border:1px solid #e0a100;
   color:#4a3500; font-size:13.5px; line-height:1.45;
@@ -1877,15 +1864,16 @@ function mostrarTelaMigrou(){
   document.title = 'Sistema migrado para o Hydra';
   const dominio = NOVO_ENDERECO.replace(/^https:\/\/|\/$/g, '');
   const el = document.createElement('div');
-  el.id = 'telaMigrou';
-  el.innerHTML = `<main>
-    <img src="/fgr-logo.png" alt="FGR Incorporações">
-    <div class="tm-card">
-      <p>O sistema <strong>Gestão e Controle de Obra</strong> (Acompanhamento de metas) foi migrado para o ambiente Hydra. O novo link de acesso é:</p>
-      <a href="${NOVO_ENDERECO}">${dominio}</a>
-      <small>Entre com a sua conta da FGR (Microsoft).</small>
-    </div>
-  </main>`;
+  el.id = 'telaMigrou'; el.className = 'auth-screen';
+  el.innerHTML = `<div class="au-card" role="dialog" aria-modal="true">
+    <img class="au-logo" src="/fgr-logo.png" alt="FGR Incorporações">
+    <h1>Gestão e Controle de Obra</h1>
+    <p class="au-sub">FGR Incorporações · Acompanhamento de obras</p>
+    <h2>Migramos para o Hydra</h2>
+    <p class="tm-txt">O sistema foi migrado para o ambiente Hydra da FGR. O novo link de acesso é:</p>
+    <a class="au-btn tm-btn" href="${NOVO_ENDERECO}">${dominio}</a>
+    <p class="tm-small">Entre com a sua conta da FGR (Microsoft).</p>
+  </div>`;
   document.body.appendChild(el);
   document.body.style.overflow = 'hidden';
   const app = document.getElementById('app'); if(app) app.style.display = 'none';
